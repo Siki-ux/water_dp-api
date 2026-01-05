@@ -18,37 +18,29 @@ class GeoLayer(Base, BaseModel):
     
     __tablename__ = "geo_layers"
     
-    # Layer identification
     layer_name = Column(String(100), unique=True, nullable=False, index=True)
     title = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
     
-    # GeoServer configuration
     workspace = Column(String(50), nullable=False, default="water_data")
     store_name = Column(String(100), nullable=False)
     srs = Column(String(20), nullable=False, default="EPSG:4326")  # Spatial Reference System
     
-    # Layer properties
     layer_type = Column(String(50), nullable=False)  # vector, raster, wms, wfs
     geometry_type = Column(String(20), nullable=True)  # point, line, polygon, etc.
     style_name = Column(String(100), nullable=True)
     
-    # Data source
     data_source = Column(String(200), nullable=True)  # URL or path to data
     data_format = Column(String(20), nullable=True)  # shapefile, geojson, postgis, etc.
     
-    # Layer status
     is_published = Column(String(10), default="true")  # true, false
     is_public = Column(String(10), default="false")  # true, false
     
-    # Additional metadata
     properties = Column(JSONB, nullable=True)
     style_config = Column(JSONB, nullable=True)  # SLD or CSS styling
     
-    # Relationships
     features = relationship("GeoFeature", back_populates="layer")
     
-    # Indexes
     __table_args__ = (
         Index('idx_layer_workspace', 'workspace'),
         Index('idx_layer_type', 'layer_type'),
@@ -61,30 +53,22 @@ class GeoFeature(Base, BaseModel):
     
     __tablename__ = "geo_features"
     
-    # Foreign keys
     layer_id = Column(String(100), ForeignKey("geo_layers.layer_name"), nullable=False)
     
-    # Feature identification
     feature_id = Column(String(100), nullable=False, index=True)
     feature_type = Column(String(50), nullable=False)  # point, line, polygon, etc.
     
-    # Geometry (using PostGIS)
     geometry = Column(Geometry(geometry_type='GEOMETRY', srid=4326), nullable=False)
     
-    # Feature properties
     properties = Column(JSONB, nullable=True)
     
-    # Temporal information
     valid_from = Column(DateTime, nullable=True)
     valid_to = Column(DateTime, nullable=True)
     
-    # Feature status
     is_active = Column(String(10), default="true")
     
-    # Relationships
     layer = relationship("GeoLayer", back_populates="features")
     
-    # Indexes
     __table_args__ = (
         Index('idx_feature_layer', 'layer_id'),
         Index('idx_feature_type', 'feature_type'),

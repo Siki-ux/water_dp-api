@@ -145,7 +145,7 @@ async def get_time_series_data(
     try:
         from datetime import datetime
         
-        # Parse datetime strings
+
         start_dt = datetime.fromisoformat(start_time) if start_time else None
         end_dt = datetime.fromisoformat(end_time) if end_time else None
         
@@ -228,7 +228,7 @@ async def get_time_series_statistics(
     try:
         from datetime import datetime
         
-        # Parse datetime strings
+
         start_dt = datetime.fromisoformat(start_time) if start_time else None
         end_dt = datetime.fromisoformat(end_time) if end_time else None
         

@@ -39,7 +39,6 @@ class DataFormat(str, Enum):
     GML = "gml"
 
 
-# GeoLayer Schemas
 class GeoLayerBase(BaseModel):
     layer_name: str = Field(..., description="Unique layer name")
     title: str = Field(..., description="Layer title")
@@ -81,7 +80,6 @@ class GeoLayerResponse(GeoLayerBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-# GeoFeature Schemas
 class GeoFeatureBase(BaseModel):
     layer_id: str = Field(..., description="Layer name")
     feature_id: str = Field(..., description="Feature identifier")
@@ -120,7 +118,6 @@ class GeoFeatureResponse(GeoFeatureBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-# Query Schemas
 class LayerQuery(BaseModel):
     """Query parameters for layers."""
     skip: int = Field(default=0, ge=0, description="Number of records to skip")
@@ -149,7 +146,6 @@ class SpatialQuery(BaseModel):
     layer_names: Optional[List[str]] = Field(None, description="Specific layers to query")
 
 
-# Response Schemas
 class LayerListResponse(BaseModel):
     """Response for layer list."""
     layers: List[GeoLayerResponse]
@@ -175,7 +171,6 @@ class SpatialQueryResponse(BaseModel):
     spatial_relation: str
 
 
-# GeoServer Integration Schemas
 class GeoServerLayerInfo(BaseModel):
     """GeoServer layer information."""
     name: str

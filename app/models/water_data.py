@@ -35,11 +35,9 @@ class WaterStation(Base, BaseModel):
     # Additional metadata
     properties = Column(JSONB, nullable=True)
     
-    # Relationships
     data_points = relationship("WaterDataPoint", back_populates="station")
     quality_data = relationship("WaterQuality", back_populates="station")
     
-    # Indexes
     __table_args__ = (
         Index('idx_station_location', 'latitude', 'longitude'),
         Index('idx_station_type', 'station_type'),
@@ -52,7 +50,6 @@ class WaterDataPoint(Base, BaseModel):
     
     __tablename__ = "water_data_points"
     
-    # Foreign keys
     station_id = Column(Integer, ForeignKey("water_stations.id"), nullable=False)
     
     # Measurement data
@@ -69,10 +66,8 @@ class WaterDataPoint(Base, BaseModel):
     measurement_method = Column(String(100), nullable=True)
     properties = Column(JSONB, nullable=True)
     
-    # Relationships
     station = relationship("WaterStation", back_populates="data_points")
     
-    # Indexes
     __table_args__ = (
         Index('idx_wd_timestamp', 'timestamp'),
         Index('idx_wd_parameter', 'parameter'),
@@ -86,7 +81,6 @@ class WaterQuality(Base, BaseModel):
     
     __tablename__ = "water_quality"
     
-    # Foreign keys
     station_id = Column(Integer, ForeignKey("water_stations.id"), nullable=False)
     
     # Quality parameters
@@ -107,10 +101,8 @@ class WaterQuality(Base, BaseModel):
     overall_quality = Column(String(20), nullable=True)  # excellent, good, fair, poor
     quality_notes = Column(Text, nullable=True)
     
-    # Relationships
     station = relationship("WaterStation", back_populates="quality_data")
     
-    # Indexes
     __table_args__ = (
         Index('idx_quality_timestamp', 'timestamp'),
         Index('idx_quality_station_timestamp', 'station_id', 'timestamp'),

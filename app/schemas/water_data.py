@@ -46,7 +46,6 @@ class QualityFlag(str, Enum):
     MISSING = "missing"
 
 
-# Water Station Schemas
 class WaterStationBase(BaseModel):
     station_id: str = Field(..., description="Unique station identifier")
     name: str = Field(..., description="Station name")
@@ -84,7 +83,6 @@ class WaterStationResponse(WaterStationBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-# Water Data Point Schemas
 class WaterDataPointBase(BaseModel):
     station_id: int = Field(..., description="Station ID")
     timestamp: datetime = Field(..., description="Measurement timestamp")
@@ -117,7 +115,6 @@ class WaterDataPointResponse(WaterDataPointBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-# Water Quality Schemas
 class WaterQualityBase(BaseModel):
     station_id: int = Field(..., description="Station ID")
     timestamp: datetime = Field(..., description="Measurement timestamp")
@@ -160,7 +157,6 @@ class WaterQualityResponse(WaterQualityBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-# Query Schemas
 class StationQuery(BaseModel):
     """Query parameters for stations."""
     skip: int = Field(default=0, ge=0, description="Number of records to skip")
@@ -193,7 +189,6 @@ class BulkDataPointCreate(BaseModel):
         return v
 
 
-# Response Schemas
 class StationListResponse(BaseModel):
     """Response for station list."""
     stations: List[WaterStationResponse]

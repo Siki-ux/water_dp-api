@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.core.database import init_db
 from app.api.v1.api import api_router
 
-# Configure logging
+
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper()),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -24,15 +24,14 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
-    # Startup
     logger.info("Starting Water Data Platform API...")
     
-    # Initialize database
+
     try:
         init_db()
         logger.info("Database initialized successfully")
         
-        # Seed data
+
         if settings.seeding:
             from app.core.database import SessionLocal
             from app.core.seeding import seed_data
@@ -49,11 +48,10 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # Shutdown
     logger.info("Shutting down Water Data Platform API...")
 
 
-# Create FastAPI application
+
 app = FastAPI(
     title=settings.app_name,
     version=settings.version,
@@ -100,7 +98,7 @@ app = FastAPI(
     ]
 )
 
-# Add CORS middleware
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -109,14 +107,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Add trusted host middleware
+
 app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=["*"]  # Configure this properly for production
 )
 
 
-# Request logging middleware
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     """Log all requests."""
@@ -135,7 +133,7 @@ async def log_requests(request: Request, call_next):
     return response
 
 
-# Global exception handler
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler."""
@@ -149,7 +147,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# Health check endpoint
+
 @app.get("/health", tags=["General"])
 async def health_check():
     """
@@ -167,7 +165,7 @@ async def health_check():
     }
 
 
-# Swagger documentation endpoint
+
 @app.get("/docs", tags=["General"])
 async def redirect_to_swagger():
     """
@@ -181,7 +179,7 @@ async def redirect_to_swagger():
     return RedirectResponse(url=f"{settings.api_prefix}/docs")
 
 
-# Root endpoint
+
 @app.get("/", tags=["General"])
 async def root():
     """
@@ -219,7 +217,7 @@ async def root():
     }
 
 
-# Include API router
+
 app.include_router(api_router, prefix=settings.api_prefix)
 
 

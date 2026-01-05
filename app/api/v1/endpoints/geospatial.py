@@ -56,8 +56,7 @@ async def get_geo_layers(
         if is_public is not None:
             layers = [l for l in layers if l.is_public == str(is_public).lower()]
         
-        # Apply pagination
-        total = len(layers)
+
         layers = layers[skip:skip + limit]
         
         return LayerListResponse(
@@ -250,7 +249,7 @@ async def spatial_query(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# GeoServer Integration Endpoints
+
 @router.post("/geoserver/publish", status_code=201)
 async def publish_layer_to_geoserver(
     request: LayerPublishRequest,
@@ -260,14 +259,14 @@ async def publish_layer_to_geoserver(
     try:
         geoserver_service = GeoServerService()
         
-        # Test connection
+
         if not geoserver_service.test_connection():
             raise HTTPException(status_code=503, detail="Cannot connect to GeoServer")
         
-        # Create workspace if needed
+
         geoserver_service.create_workspace(request.workspace)
         
-        # Publish layer
+
         success = geoserver_service.publish_layer(request)
         
         if success:

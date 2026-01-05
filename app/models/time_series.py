@@ -17,7 +17,6 @@ class TimeSeriesMetadata(Base, BaseModel):
     
     __tablename__ = "time_series_metadata"
     
-    # Series identification
     series_id = Column(String(100), unique=True, nullable=False, index=True)
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
@@ -45,10 +44,8 @@ class TimeSeriesMetadata(Base, BaseModel):
     # Additional metadata
     properties = Column(JSONB, nullable=True)
     
-    # Relationships
     data_points = relationship("TimeSeriesData", back_populates="series_metadata")
     
-    # Indexes
     __table_args__ = (
         Index('idx_series_parameter', 'parameter'),
         Index('idx_series_source', 'source_type', 'source_id'),
@@ -62,7 +59,6 @@ class TimeSeriesData(Base, BaseModel):
     
     __tablename__ = "time_series_data"
     
-    # Foreign keys
     series_id = Column(String(100), ForeignKey("time_series_metadata.series_id"), nullable=False)
     
     # Temporal data
@@ -81,10 +77,8 @@ class TimeSeriesData(Base, BaseModel):
     # Additional metadata
     properties = Column(JSONB, nullable=True)
     
-    # Relationships
     series_metadata = relationship("TimeSeriesMetadata", back_populates="data_points")
     
-    # Indexes
     __table_args__ = (
         Index('idx_ts_series_timestamp', 'series_id', 'timestamp'),
         Index('idx_ts_timestamp', 'timestamp'),

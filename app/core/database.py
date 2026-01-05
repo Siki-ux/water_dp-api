@@ -12,7 +12,6 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Database engine with connection pooling
 engine = create_engine(
     settings.database_url,
     poolclass=QueuePool,
@@ -22,13 +21,13 @@ engine = create_engine(
     echo=settings.debug
 )
 
-# Session factory
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Base class for models
+
 Base = declarative_base()
 
-# Metadata for migrations
+
 metadata = MetaData()
 
 

@@ -58,7 +58,6 @@ class AggregationInterval(str, Enum):
     YEAR_1 = "1year"
 
 
-# Time Series Metadata Schemas
 class TimeSeriesMetadataBase(BaseModel):
     series_id: str = Field(..., description="Unique series identifier")
     name: str = Field(..., description="Series name")
@@ -99,7 +98,6 @@ class TimeSeriesMetadataResponse(TimeSeriesMetadataBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-# Time Series Data Schemas
 class TimeSeriesDataBase(BaseModel):
     series_id: str = Field(..., description="Series ID")
     timestamp: datetime = Field(..., description="Data timestamp")
@@ -134,7 +132,6 @@ class TimeSeriesDataResponse(TimeSeriesDataBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-# Query Schemas
 class TimeSeriesQuery(BaseModel):
     """Query parameters for time series data."""
     series_id: str = Field(..., description="Series ID")
@@ -185,7 +182,6 @@ class BulkTimeSeriesDataCreate(BaseModel):
         return v
 
 
-# Response Schemas
 class TimeSeriesListResponse(BaseModel):
     """Response for time series data list."""
     data_points: List[TimeSeriesDataResponse]
@@ -236,7 +232,6 @@ class TimeSeriesStatistics(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 
-# Interpolation Schemas
 class InterpolationRequest(BaseModel):
     """Request for time series interpolation."""
     series_id: str

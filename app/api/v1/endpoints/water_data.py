@@ -48,7 +48,7 @@ async def get_stations(
         db_service = DatabaseService(db)
         stations = db_service.get_stations(skip=skip, limit=limit, station_type=station_type, status=status)
         
-        # Get total count for pagination
+
         total = len(stations)  # This is a simplified count, in production you'd want a separate count query
         
         return StationListResponse(
@@ -91,7 +91,6 @@ async def update_station(
     try:
         db_service = DatabaseService(db)
         
-        # Convert Pydantic model to dict, excluding None values
         update_data = station_update.model_dump(exclude_unset=True)
         
         station = db_service.update_station(station_id, update_data)
@@ -180,7 +179,7 @@ async def get_data_points(
         
         db_service = DatabaseService(db)
         
-        # Parse datetime strings
+
         start_dt = datetime.fromisoformat(start_time) if start_time else None
         end_dt = datetime.fromisoformat(end_time) if end_time else None
         
@@ -192,7 +191,6 @@ async def get_data_points(
             limit=limit
         )
         
-        # Apply quality filter if specified
         if quality_filter:
             data_points = [dp for dp in data_points if dp.quality_flag == quality_filter]
         
@@ -239,7 +237,7 @@ async def get_station_statistics(
         
         db_service = DatabaseService(db)
         
-        # Parse datetime strings
+
         start_dt = datetime.fromisoformat(start_time) if start_time else None
         end_dt = datetime.fromisoformat(end_time) if end_time else None
         
@@ -285,7 +283,7 @@ async def get_quality_data(
     try:
         from datetime import datetime
         
-        # Parse datetime strings
+
         start_dt = datetime.fromisoformat(start_time) if start_time else None
         end_dt = datetime.fromisoformat(end_time) if end_time else None
         

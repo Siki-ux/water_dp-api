@@ -41,6 +41,12 @@ jobs:
         run: poetry install --no-interaction
         
       - name: Run tests
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/water_data"
+          GEOSERVER_URL: "http://localhost:8080/geoserver"
+          GEOSERVER_USERNAME: "admin"
+          GEOSERVER_PASSWORD: "geoserver"
+          SECRET_KEY: "supersecretkey"
         run: poetry run pytest
 
   build-docker:
