@@ -112,16 +112,16 @@ class DatabaseService:
     
     def get_latest_data(self, station_id: int, parameter: Optional[str] = None) -> List[WaterDataPoint]:
         """Get latest data points for a station."""
-        query = self.db.query(WaterDataPoint).filter(WaterDataPoint.station_id == station_id)
-        
-        if parameter:
-            query = query.filter(WaterDataPoint.parameter == parameter)
-        
         # Get latest timestamp for each parameter
-        latest_timestamps = self.db.query(
+        latest_timestamps_query = self.db.query(
             WaterDataPoint.parameter,
             func.max(WaterDataPoint.timestamp).label('latest_time')
-        ).filter(WaterDataPoint.station_id == station_id).group_by(WaterDataPoint.parameter).subquery()
+        ).filter(WaterDataPoint.station_id == station_id)
+        
+        if parameter:
+            latest_timestamps_query = latest_timestamps_query.filter(WaterDataPoint.parameter == parameter)
+        
+        latest_timestamps = latest_timestamps_query.group_by(WaterDataPoint.parameter).subquery()
         
         return self.db.query(WaterDataPoint).join(
             latest_timestamps,
