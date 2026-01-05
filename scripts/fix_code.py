@@ -47,7 +47,6 @@ def main():
         #    pass
         # simpler: just remove pass.
 
-
     # 2. Run Black
     # This handles code formatting (line length, spacing, etc.)
     if not run_command("black .", "Black (Code Formatting)"):
