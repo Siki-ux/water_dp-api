@@ -1,17 +1,20 @@
 """
 Pydantic schemas for geospatial data API models.
 """
+
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, field_validator, ConfigDict
 from enum import Enum
+from typing import Any, Dict, List, Optional
+
 from geoalchemy2.elements import WKBElement
 from geoalchemy2.shape import to_shape
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from shapely.geometry import mapping
 
 
 class LayerType(str, Enum):
     """Geospatial layer types."""
+
     VECTOR = "vector"
     RASTER = "raster"
     WMS = "wms"
@@ -21,6 +24,7 @@ class LayerType(str, Enum):
 
 class GeometryType(str, Enum):
     """Geometry types."""
+
     POINT = "point"
     LINE = "line"
     POLYGON = "polygon"
@@ -31,6 +35,7 @@ class GeometryType(str, Enum):
 
 class DataFormat(str, Enum):
     """Data format types."""
+
     SHAPEFILE = "shapefile"
     GEOJSON = "geojson"
     POSTGIS = "postgis"
@@ -47,14 +52,22 @@ class GeoLayerBase(BaseModel):
     store_name: str = Field(..., description="Data store name")
     srs: str = Field(default="EPSG:4326", description="Spatial reference system")
     layer_type: LayerType = Field(..., description="Type of layer")
-    geometry_type: Optional[GeometryType] = Field(None, description="Geometry type for vector layers")
+    geometry_type: Optional[GeometryType] = Field(
+        None, description="Geometry type for vector layers"
+    )
     style_name: Optional[str] = Field(None, description="Style name")
     data_source: Optional[str] = Field(None, description="Data source URL or path")
     data_format: Optional[DataFormat] = Field(None, description="Data format")
     is_published: bool = Field(default=True, description="Whether layer is published")
-    is_public: bool = Field(default=False, description="Whether layer is publicly accessible")
-    properties: Optional[Dict[str, Any]] = Field(None, description="Additional properties")
-    style_config: Optional[Dict[str, Any]] = Field(None, description="Style configuration")
+    is_public: bool = Field(
+        default=False, description="Whether layer is publicly accessible"
+    )
+    properties: Optional[Dict[str, Any]] = Field(
+        None, description="Additional properties"
+    )
+    style_config: Optional[Dict[str, Any]] = Field(
+        None, description="Style configuration"
+    )
 
 
 class GeoLayerCreate(GeoLayerBase):
@@ -76,7 +89,7 @@ class GeoLayerResponse(GeoLayerBase):
     id: int
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -90,7 +103,7 @@ class GeoFeatureBase(BaseModel):
     valid_to: Optional[datetime] = Field(None, description="Valid to timestamp")
     is_active: bool = Field(default=True, description="Whether feature is active")
 
-    @field_validator('geometry', mode='before')
+    @field_validator("geometry", mode="before")
     @classmethod
     def geometry_to_dict(cls, v):
         if isinstance(v, WKBElement):
@@ -114,40 +127,61 @@ class GeoFeatureResponse(GeoFeatureBase):
     id: int
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class LayerQuery(BaseModel):
     """Query parameters for layers."""
+
     skip: int = Field(default=0, ge=0, description="Number of records to skip")
-    limit: int = Field(default=100, ge=1, le=1000, description="Maximum number of records")
+    limit: int = Field(
+        default=100, ge=1, le=1000, description="Maximum number of records"
+    )
     workspace: Optional[str] = Field(None, description="Filter by workspace")
     layer_type: Optional[LayerType] = Field(None, description="Filter by layer type")
-    is_published: Optional[bool] = Field(None, description="Filter by publication status")
+    is_published: Optional[bool] = Field(
+        None, description="Filter by publication status"
+    )
     is_public: Optional[bool] = Field(None, description="Filter by public access")
 
 
 class FeatureQuery(BaseModel):
     """Query parameters for features."""
+
     layer_name: str = Field(..., description="Layer name")
     skip: int = Field(default=0, ge=0, description="Number of records to skip")
-    limit: int = Field(default=1000, ge=1, le=10000, description="Maximum number of records")
-    feature_type: Optional[GeometryType] = Field(None, description="Filter by feature type")
+    limit: int = Field(
+        default=1000, ge=1, le=10000, description="Maximum number of records"
+    )
+    feature_type: Optional[GeometryType] = Field(
+        None, description="Filter by feature type"
+    )
     is_active: Optional[bool] = Field(None, description="Filter by active status")
-    bbox: Optional[List[float]] = Field(None, description="Bounding box [min_lon, min_lat, max_lon, max_lat]")
-    properties_filter: Optional[Dict[str, Any]] = Field(None, description="Filter by properties")
+    bbox: Optional[List[float]] = Field(
+        None, description="Bounding box [min_lon, min_lat, max_lon, max_lat]"
+    )
+    properties_filter: Optional[Dict[str, Any]] = Field(
+        None, description="Filter by properties"
+    )
 
 
 class SpatialQuery(BaseModel):
     """Spatial query parameters."""
+
     geometry: Dict[str, Any] = Field(..., description="Query geometry (GeoJSON)")
-    spatial_relation: str = Field(default="intersects", description="Spatial relation (intersects, contains, within, etc.)")
-    layer_names: Optional[List[str]] = Field(None, description="Specific layers to query")
+    spatial_relation: str = Field(
+        default="intersects",
+        description="Spatial relation (intersects, contains, within, etc.)",
+    )
+    layer_names: Optional[List[str]] = Field(
+        None, description="Specific layers to query"
+    )
 
 
 class LayerListResponse(BaseModel):
     """Response for layer list."""
+
     layers: List[GeoLayerResponse]
     total: int
     skip: int
@@ -156,6 +190,7 @@ class LayerListResponse(BaseModel):
 
 class FeatureListResponse(BaseModel):
     """Response for feature list."""
+
     features: List[GeoFeatureResponse]
     total: int
     layer_name: str
@@ -165,6 +200,7 @@ class FeatureListResponse(BaseModel):
 
 class SpatialQueryResponse(BaseModel):
     """Response for spatial queries."""
+
     features: List[GeoFeatureResponse]
     total: int
     query_geometry: Dict[str, Any]
@@ -173,6 +209,7 @@ class SpatialQueryResponse(BaseModel):
 
 class GeoServerLayerInfo(BaseModel):
     """GeoServer layer information."""
+
     name: str
     title: str
     abstract: Optional[str] = None
@@ -187,6 +224,7 @@ class GeoServerLayerInfo(BaseModel):
 
 class GeoServerStyleInfo(BaseModel):
     """GeoServer style information."""
+
     name: str
     title: str
     abstract: Optional[str] = None
@@ -197,6 +235,7 @@ class GeoServerStyleInfo(BaseModel):
 
 class LayerPublishRequest(BaseModel):
     """Request to publish a layer."""
+
     layer_name: str
     workspace: str
     store_name: str
@@ -207,5 +246,6 @@ class LayerPublishRequest(BaseModel):
 
 class LayerUnpublishRequest(BaseModel):
     """Request to unpublish a layer."""
+
     layer_name: str
     workspace: str

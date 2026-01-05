@@ -1,12 +1,14 @@
 """
 Database configuration and session management.
 """
-from sqlalchemy import create_engine, MetaData
-from sqlalchemy.orm import sessionmaker, Session, declarative_base
-from sqlalchemy.pool import QueuePool
-from sqlalchemy.exc import ProgrammingError, OperationalError
-from typing import Generator
+
 import logging
+from typing import Generator
+
+from sqlalchemy import MetaData, create_engine
+from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
+from sqlalchemy.pool import QueuePool
 
 from app.core.config import settings
 
@@ -18,7 +20,7 @@ engine = create_engine(
     pool_size=settings.database_pool_size,
     max_overflow=settings.database_max_overflow,
     pool_pre_ping=True,
-    echo=settings.debug
+    echo=settings.debug,
 )
 
 
@@ -54,18 +56,19 @@ def init_db() -> None:
     """
     try:
         # Import models to ensure they are registered with Base.metadata
-        from app.models.geospatial import GeoLayer, GeoFeature
-        from app.models.water_data import WaterStation, WaterDataPoint
-        from app.models.time_series import TimeSeriesMetadata, TimeSeriesData
-        
+
         # Use checkfirst=True to avoid errors if tables already exist
-        logger.info(f"Targeting tables for creation: {list(Base.metadata.tables.keys())}")
+        logger.info(
+            f"Targeting tables for creation: {list(Base.metadata.tables.keys())}"
+        )
         Base.metadata.create_all(bind=engine, checkfirst=True)
         logger.info("Database tables initialized successfully")
     except (ProgrammingError, OperationalError) as e:
         # Handle cases where indexes or constraints already exist
         error_str = str(e).lower()
-        logger.error(f"Database initialization exception details: {e}") # Force log the error
+        logger.error(
+            f"Database initialization exception details: {e}"
+        )  # Force log the error
         if "already exists" in error_str or "duplicate" in error_str:
             logger.warning(f"Some database objects already exist (this is normal): {e}")
             logger.info("Database schema is up to date")

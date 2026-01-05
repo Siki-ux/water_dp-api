@@ -1,22 +1,23 @@
 """
 Main FastAPI application.
 """
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse
+
 import logging
 import time
 from contextlib import asynccontextmanager
 
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
+
+from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.database import init_db
-from app.api.v1.api import api_router
-
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper()),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -25,31 +26,28 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     logger.info("Starting Water Data Platform API...")
-    
 
     try:
         init_db()
         logger.info("Database initialized successfully")
-        
 
         if settings.seeding:
             from app.core.database import SessionLocal
             from app.core.seeding import seed_data
-            
+
             db = SessionLocal()
             try:
                 seed_data(db)
             finally:
                 db.close()
-                
+
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
         raise
-    
-    yield
-    
-    logger.info("Shutting down Water Data Platform API...")
 
+    yield
+
+    logger.info("Shutting down Water Data Platform API...")
 
 
 app = FastAPI(
@@ -57,20 +55,20 @@ app = FastAPI(
     version=settings.version,
     description="""
     ## Water Data Platform API
-    
+
     A comprehensive backend for water data management with:
-    
+
     * **Database Integration**: PostgreSQL with PostGIS for geospatial data
     * **GeoServer Integration**: Full geospatial services and layer management
     * **Time Series Processing**: Advanced analytics and data processing
     * **RESTful API**: Complete CRUD operations for all data types
-    
+
     ### Features
     - 🗺️ **Geospatial Data**: Manage layers, features, and GeoServer integration
     - 📊 **Water Data**: Stations, measurements, and quality data
     - ⏰ **Time Series**: Advanced time series analysis and processing
     - 🔍 **Analytics**: Statistical analysis, anomaly detection, and aggregation
-    
+
     ### Authentication
     Currently using basic authentication. Contact admin for API keys.
     """,
@@ -87,15 +85,12 @@ app = FastAPI(
         "url": "https://opensource.org/licenses/MIT",
     },
     servers=[
-        {
-            "url": "http://localhost:8000",
-            "description": "Development server"
-        },
+        {"url": "http://localhost:8000", "description": "Development server"},
         {
             "url": "https://api.waterdataplatform.com",
-            "description": "Production server"
-        }
-    ]
+            "description": "Production server",
+        },
+    ],
 )
 
 
@@ -109,29 +104,26 @@ app.add_middleware(
 
 
 app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=["*"]  # Configure this properly for production
+    TrustedHostMiddleware, allowed_hosts=["*"]  # Configure this properly for production
 )
-
 
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     """Log all requests."""
     start_time = time.time()
-    
+
     # Log request
     logger.info(f"Request: {request.method} {request.url}")
-    
+
     # Process request
     response = await call_next(request)
-    
+
     # Log response
     process_time = time.time() - start_time
     logger.info(f"Response: {response.status_code} - {process_time:.3f}s")
-    
-    return response
 
+    return response
 
 
 @app.exception_handler(Exception)
@@ -140,59 +132,54 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={
-            "detail": "Internal server error",
-            "type": "internal_error"
-        }
+        content={"detail": "Internal server error", "type": "internal_error"},
     )
-
 
 
 @app.get("/health", tags=["General"])
 async def health_check():
     """
     ## Health Check
-    
+
     Check the health status of the Water Data Platform API.
-    
+
     Returns the current status and basic system information.
     """
     return {
         "status": "healthy",
         "app_name": settings.app_name,
         "version": settings.version,
-        "timestamp": time.time()
+        "timestamp": time.time(),
     }
-
 
 
 @app.get("/docs", tags=["General"])
 async def redirect_to_swagger():
     """
     ## API Documentation
-    
+
     Redirects to the Swagger UI documentation.
-    
+
     This endpoint provides easy access to the interactive API documentation.
     """
     from fastapi.responses import RedirectResponse
-    return RedirectResponse(url=f"{settings.api_prefix}/docs")
 
+    return RedirectResponse(url=f"{settings.api_prefix}/docs")
 
 
 @app.get("/", tags=["General"])
 async def root():
     """
     ## Welcome to Water Data Platform API
-    
+
     This is the main entry point for the Water Data Platform API.
-    
+
     ### Quick Links:
     - 📚 **API Documentation**: [Swagger UI](/api/v1/docs)
     - 📖 **Alternative Docs**: [ReDoc](/api/v1/redoc)
     - 🔍 **OpenAPI Schema**: [JSON Schema](/api/v1/openapi.json)
     - ❤️ **Health Check**: [Health Status](/health)
-    
+
     ### Available Endpoints:
     - **Water Data**: `/api/v1/water-data/` - Stations, measurements, quality data
     - **Time Series**: `/api/v1/time-series/` - Time series data and analysis
@@ -205,17 +192,16 @@ async def root():
         "documentation": {
             "swagger_ui": f"{settings.api_prefix}/docs",
             "redoc": f"{settings.api_prefix}/redoc",
-            "openapi_json": f"{settings.api_prefix}/openapi.json"
+            "openapi_json": f"{settings.api_prefix}/openapi.json",
         },
         "endpoints": {
             "water_data": f"{settings.api_prefix}/water-data/",
             "time_series": f"{settings.api_prefix}/time-series/",
             "geospatial": f"{settings.api_prefix}/geospatial/",
-            "health": "/health"
+            "health": "/health",
         },
-        "health_url": "/health"
+        "health_url": "/health",
     }
-
 
 
 app.include_router(api_router, prefix=settings.api_prefix)
@@ -223,10 +209,11 @@ app.include_router(api_router, prefix=settings.api_prefix)
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
         port=8000,
         reload=settings.debug,
-        log_level=settings.log_level.lower()
+        log_level=settings.log_level.lower(),
     )

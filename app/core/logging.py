@@ -1,17 +1,20 @@
 """
 Logging configuration for the Water Data Platform.
 """
+
 import logging
 import logging.config
 import sys
-from typing import Dict, Any
+from typing import Any, Dict
+
 import structlog
+
 from app.core.config import settings
 
 
 def configure_logging() -> None:
     """Configure application logging."""
-    
+
     # Base logging configuration
     logging_config: Dict[str, Any] = {
         "version": 1,
@@ -86,10 +89,10 @@ def configure_logging() -> None:
             "handlers": ["console", "file", "error_file"],
         },
     }
-    
+
     # Apply configuration
     logging.config.dictConfig(logging_config)
-    
+
     # Configure structlog
     structlog.configure(
         processors=[
@@ -118,11 +121,11 @@ def get_logger(name: str) -> structlog.BoundLogger:
 # Request logging middleware
 class RequestLoggingMiddleware:
     """Middleware for logging HTTP requests."""
-    
+
     def __init__(self, app):
         self.app = app
         self.logger = get_logger("request")
-    
+
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
             # Log request
@@ -132,10 +135,10 @@ class RequestLoggingMiddleware:
                 path=scope["path"],
                 query_string=scope.get("query_string", b"").decode(),
             )
-            
+
             # Process request
             await self.app(scope, receive, send)
-            
+
             # Log response (this is simplified - in practice you'd want to capture status)
             self.logger.info("Request completed")
         else:

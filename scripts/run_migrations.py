@@ -2,9 +2,9 @@
 """
 Database migration runner for the Water Data Platform.
 """
-import sys
-import subprocess
 import logging
+import subprocess
+import sys
 from pathlib import Path
 
 # Add the app directory to the Python path
@@ -18,20 +18,17 @@ logger = logging.getLogger(__name__)
 def run_migrations():
     """Run database migrations."""
     logger.info("Running database migrations...")
-    
+
     try:
         # Run Alembic upgrade
         result = subprocess.run(
-            ["alembic", "upgrade", "head"],
-            check=True,
-            capture_output=True,
-            text=True
+            ["alembic", "upgrade", "head"], check=True, capture_output=True, text=True
         )
-        
+
         logger.info("Migrations completed successfully.")
         logger.info(f"Output: {result.stdout}")
         return True
-        
+
     except subprocess.CalledProcessError as e:
         logger.error(f"Migration failed: {e.stderr}")
         return False
@@ -43,19 +40,19 @@ def run_migrations():
 def create_migration(message: str):
     """Create a new migration."""
     logger.info(f"Creating migration: {message}")
-    
+
     try:
         result = subprocess.run(
             ["alembic", "revision", "--autogenerate", "-m", message],
             check=True,
             capture_output=True,
-            text=True
+            text=True,
         )
-        
+
         logger.info("Migration created successfully.")
         logger.info(f"Output: {result.stdout}")
         return True
-        
+
     except subprocess.CalledProcessError as e:
         logger.error(f"Migration creation failed: {e.stderr}")
         return False
@@ -67,13 +64,13 @@ def create_migration(message: str):
 def main():
     """Main migration function."""
     configure_logging()
-    
+
     if len(sys.argv) < 2:
         print("Usage: python run_migrations.py [upgrade|create] [message]")
         sys.exit(1)
-    
+
     command = sys.argv[1]
-    
+
     if command == "upgrade":
         success = run_migrations()
     elif command == "create":
@@ -85,7 +82,7 @@ def main():
     else:
         print("Unknown command. Use 'upgrade' or 'create'")
         sys.exit(1)
-    
+
     if not success:
         sys.exit(1)
 

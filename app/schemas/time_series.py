@@ -1,14 +1,17 @@
 """
 Pydantic schemas for time series data API models.
 """
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, field_validator, ValidationInfo, ConfigDict
+
+from datetime import datetime
 from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 
 class SourceType(str, Enum):
     """Time series source types."""
+
     SENSOR = "sensor"
     MODEL = "model"
     MANUAL = "manual"
@@ -18,6 +21,7 @@ class SourceType(str, Enum):
 
 class DataType(str, Enum):
     """Time series data types."""
+
     CONTINUOUS = "continuous"
     DISCRETE = "discrete"
     EVENT = "event"
@@ -25,6 +29,7 @@ class DataType(str, Enum):
 
 class QualityLevel(str, Enum):
     """Data quality levels."""
+
     RAW = "raw"
     PROCESSED = "processed"
     VALIDATED = "validated"
@@ -33,6 +38,7 @@ class QualityLevel(str, Enum):
 
 class AggregationMethod(str, Enum):
     """Aggregation methods."""
+
     MEAN = "mean"
     MAX = "max"
     MIN = "min"
@@ -45,6 +51,7 @@ class AggregationMethod(str, Enum):
 
 class AggregationInterval(str, Enum):
     """Aggregation intervals."""
+
     MINUTE_1 = "1min"
     MINUTE_5 = "5min"
     MINUTE_15 = "15min"
@@ -72,9 +79,13 @@ class TimeSeriesMetadataBase(BaseModel):
     unit: str = Field(..., description="Unit of measurement")
     data_type: DataType = Field(..., description="Data type")
     sampling_rate: Optional[str] = Field(None, description="Sampling rate")
-    quality_level: QualityLevel = Field(default=QualityLevel.RAW, description="Data quality level")
+    quality_level: QualityLevel = Field(
+        default=QualityLevel.RAW, description="Data quality level"
+    )
     processing_notes: Optional[str] = Field(None, description="Processing notes")
-    properties: Optional[Dict[str, Any]] = Field(None, description="Additional properties")
+    properties: Optional[Dict[str, Any]] = Field(
+        None, description="Additional properties"
+    )
 
 
 class TimeSeriesMetadataCreate(TimeSeriesMetadataBase):
@@ -94,7 +105,7 @@ class TimeSeriesMetadataResponse(TimeSeriesMetadataBase):
     id: int
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -104,10 +115,18 @@ class TimeSeriesDataBase(BaseModel):
     value: float = Field(..., description="Data value")
     quality_flag: str = Field(default="good", description="Quality flag")
     uncertainty: Optional[float] = Field(None, description="Measurement uncertainty")
-    is_interpolated: bool = Field(default=False, description="Whether value is interpolated")
-    is_aggregated: bool = Field(default=False, description="Whether value is aggregated")
-    aggregation_method: Optional[str] = Field(None, description="Aggregation method used")
-    properties: Optional[Dict[str, Any]] = Field(None, description="Additional properties")
+    is_interpolated: bool = Field(
+        default=False, description="Whether value is interpolated"
+    )
+    is_aggregated: bool = Field(
+        default=False, description="Whether value is aggregated"
+    )
+    aggregation_method: Optional[str] = Field(
+        None, description="Aggregation method used"
+    )
+    properties: Optional[Dict[str, Any]] = Field(
+        None, description="Additional properties"
+    )
 
 
 class TimeSeriesDataCreate(TimeSeriesDataBase):
@@ -128,62 +147,82 @@ class TimeSeriesDataResponse(TimeSeriesDataBase):
     id: int
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class TimeSeriesQuery(BaseModel):
     """Query parameters for time series data."""
+
     series_id: str = Field(..., description="Series ID")
     start_time: Optional[datetime] = Field(None, description="Start time filter")
     end_time: Optional[datetime] = Field(None, description="End time filter")
-    limit: int = Field(default=1000, ge=1, le=100000, description="Maximum number of records")
+    limit: int = Field(
+        default=1000, ge=1, le=100000, description="Maximum number of records"
+    )
     quality_filter: Optional[str] = Field(None, description="Filter by quality flag")
-    include_interpolated: bool = Field(default=True, description="Include interpolated values")
-    include_aggregated: bool = Field(default=True, description="Include aggregated values")
-    
-    @field_validator('end_time')
+    include_interpolated: bool = Field(
+        default=True, description="Include interpolated values"
+    )
+    include_aggregated: bool = Field(
+        default=True, description="Include aggregated values"
+    )
+
+    @field_validator("end_time")
     @classmethod
-    def validate_time_range(cls, v: Optional[datetime], info: ValidationInfo) -> Optional[datetime]:
-        if v and info.data.get('start_time'):
-            if v <= info.data['start_time']:
-                raise ValueError('end_time must be after start_time')
+    def validate_time_range(
+        cls, v: Optional[datetime], info: ValidationInfo
+    ) -> Optional[datetime]:
+        if v and info.data.get("start_time"):
+            if v <= info.data["start_time"]:
+                raise ValueError("end_time must be after start_time")
         return v
 
 
 class TimeSeriesAggregation(BaseModel):
     """Time series aggregation parameters."""
+
     series_id: str = Field(..., description="Series ID")
     start_time: datetime = Field(..., description="Aggregation start time")
     end_time: datetime = Field(..., description="Aggregation end time")
     aggregation_method: AggregationMethod = Field(..., description="Aggregation method")
-    aggregation_interval: AggregationInterval = Field(..., description="Aggregation interval")
+    aggregation_interval: AggregationInterval = Field(
+        ..., description="Aggregation interval"
+    )
     time_zone: str = Field(default="UTC", description="Time zone for aggregation")
-    include_metadata: bool = Field(default=True, description="Include aggregation metadata")
-    
-    @field_validator('end_time')
+    include_metadata: bool = Field(
+        default=True, description="Include aggregation metadata"
+    )
+
+    @field_validator("end_time")
     @classmethod
     def validate_time_range(cls, v: datetime, info: ValidationInfo) -> datetime:
-        if info.data.get('start_time') and v <= info.data['start_time']:
-            raise ValueError('end_time must be after start_time')
+        if info.data.get("start_time") and v <= info.data["start_time"]:
+            raise ValueError("end_time must be after start_time")
         return v
 
 
 class BulkTimeSeriesDataCreate(BaseModel):
     """Bulk creation of time series data."""
+
     series_id: str = Field(..., description="Series ID")
-    data_points: List[TimeSeriesDataCreate] = Field(..., description="List of data points")
-    
-    @field_validator('data_points')
+    data_points: List[TimeSeriesDataCreate] = Field(
+        ..., description="List of data points"
+    )
+
+    @field_validator("data_points")
     @classmethod
-    def validate_data_points(cls, v: List[TimeSeriesDataCreate]) -> List[TimeSeriesDataCreate]:
+    def validate_data_points(
+        cls, v: List[TimeSeriesDataCreate]
+    ) -> List[TimeSeriesDataCreate]:
         if len(v) > 10000:
-            raise ValueError('Cannot create more than 10000 data points at once')
+            raise ValueError("Cannot create more than 10000 data points at once")
         return v
 
 
 class TimeSeriesListResponse(BaseModel):
     """Response for time series data list."""
+
     data_points: List[TimeSeriesDataResponse]
     total: int
     series_id: str
@@ -193,6 +232,7 @@ class TimeSeriesListResponse(BaseModel):
 
 class TimeSeriesMetadataListResponse(BaseModel):
     """Response for time series metadata list."""
+
     series: List[TimeSeriesMetadataResponse]
     total: int
     skip: int
@@ -201,6 +241,7 @@ class TimeSeriesMetadataListResponse(BaseModel):
 
 class AggregatedDataPoint(BaseModel):
     """Aggregated data point."""
+
     timestamp: datetime
     value: float
     count: int
@@ -212,6 +253,7 @@ class AggregatedDataPoint(BaseModel):
 
 class AggregatedTimeSeriesResponse(BaseModel):
     """Response for aggregated time series data."""
+
     series_id: str
     aggregation_method: str
     aggregation_interval: str
@@ -223,6 +265,7 @@ class AggregatedTimeSeriesResponse(BaseModel):
 
 class TimeSeriesStatistics(BaseModel):
     """Time series statistics."""
+
     series_id: str
     time_range: Dict[str, datetime]
     total_points: int
@@ -234,17 +277,21 @@ class TimeSeriesStatistics(BaseModel):
 
 class InterpolationRequest(BaseModel):
     """Request for time series interpolation."""
+
     series_id: str
     start_time: datetime
     end_time: datetime
     method: str = Field(default="linear", description="Interpolation method")
     interval: str = Field(default="1hour", description="Output interval")
     fill_gaps: bool = Field(default=True, description="Fill gaps in data")
-    max_gap_duration: Optional[str] = Field(None, description="Maximum gap duration to fill")
+    max_gap_duration: Optional[str] = Field(
+        None, description="Maximum gap duration to fill"
+    )
 
 
 class InterpolationResponse(BaseModel):
     """Response for interpolation."""
+
     series_id: str
     interpolated_data: List[TimeSeriesDataResponse]
     method: str

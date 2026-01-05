@@ -1,14 +1,17 @@
 """
 Pydantic schemas for water data API models.
 """
+
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, field_validator, ConfigDict
 from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class StationType(str, Enum):
     """Water station types."""
+
     RIVER = "river"
     LAKE = "lake"
     GROUNDWATER = "groundwater"
@@ -19,6 +22,7 @@ class StationType(str, Enum):
 
 class StationStatus(str, Enum):
     """Station status values."""
+
     ACTIVE = "active"
     INACTIVE = "inactive"
     MAINTENANCE = "maintenance"
@@ -27,6 +31,7 @@ class StationStatus(str, Enum):
 
 class ParameterType(str, Enum):
     """Water data parameters."""
+
     WATER_LEVEL = "water_level"
     FLOW_RATE = "flow_rate"
     TEMPERATURE = "temperature"
@@ -40,6 +45,7 @@ class ParameterType(str, Enum):
 
 class QualityFlag(str, Enum):
     """Data quality flags."""
+
     GOOD = "good"
     QUESTIONABLE = "questionable"
     BAD = "bad"
@@ -52,11 +58,17 @@ class WaterStationBase(BaseModel):
     description: Optional[str] = Field(None, description="Station description")
     latitude: float = Field(..., ge=-90, le=90, description="Latitude coordinate")
     longitude: float = Field(..., ge=-180, le=180, description="Longitude coordinate")
-    elevation: Optional[float] = Field(None, description="Elevation above sea level (meters)")
+    elevation: Optional[float] = Field(
+        None, description="Elevation above sea level (meters)"
+    )
     station_type: StationType = Field(..., description="Type of water station")
-    status: StationStatus = Field(default=StationStatus.ACTIVE, description="Station status")
+    status: StationStatus = Field(
+        default=StationStatus.ACTIVE, description="Station status"
+    )
     organization: Optional[str] = Field(None, description="Managing organization")
-    properties: Optional[Dict[str, Any]] = Field(None, description="Additional properties")
+    properties: Optional[Dict[str, Any]] = Field(
+        None, description="Additional properties"
+    )
 
 
 class WaterStationCreate(WaterStationBase):
@@ -79,7 +91,7 @@ class WaterStationResponse(WaterStationBase):
     id: int
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -89,10 +101,16 @@ class WaterDataPointBase(BaseModel):
     parameter: ParameterType = Field(..., description="Measured parameter")
     value: float = Field(..., description="Measured value")
     unit: str = Field(..., description="Unit of measurement")
-    quality_flag: QualityFlag = Field(default=QualityFlag.GOOD, description="Data quality flag")
+    quality_flag: QualityFlag = Field(
+        default=QualityFlag.GOOD, description="Data quality flag"
+    )
     uncertainty: Optional[float] = Field(None, description="Measurement uncertainty")
-    measurement_method: Optional[str] = Field(None, description="Measurement method used")
-    properties: Optional[Dict[str, Any]] = Field(None, description="Additional properties")
+    measurement_method: Optional[str] = Field(
+        None, description="Measurement method used"
+    )
+    properties: Optional[Dict[str, Any]] = Field(
+        None, description="Additional properties"
+    )
 
 
 class WaterDataPointCreate(WaterDataPointBase):
@@ -111,7 +129,7 @@ class WaterDataPointResponse(WaterDataPointBase):
     id: int
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -120,14 +138,24 @@ class WaterQualityBase(BaseModel):
     timestamp: datetime = Field(..., description="Measurement timestamp")
     temperature: Optional[float] = Field(None, description="Water temperature (°C)")
     ph: Optional[float] = Field(None, ge=0, le=14, description="pH level")
-    dissolved_oxygen: Optional[float] = Field(None, ge=0, description="Dissolved oxygen (mg/L)")
+    dissolved_oxygen: Optional[float] = Field(
+        None, ge=0, description="Dissolved oxygen (mg/L)"
+    )
     turbidity: Optional[float] = Field(None, ge=0, description="Turbidity (NTU)")
-    conductivity: Optional[float] = Field(None, ge=0, description="Conductivity (μS/cm)")
-    total_dissolved_solids: Optional[float] = Field(None, ge=0, description="TDS (mg/L)")
+    conductivity: Optional[float] = Field(
+        None, ge=0, description="Conductivity (μS/cm)"
+    )
+    total_dissolved_solids: Optional[float] = Field(
+        None, ge=0, description="TDS (mg/L)"
+    )
     nitrates: Optional[float] = Field(None, ge=0, description="Nitrates (mg/L)")
     phosphates: Optional[float] = Field(None, ge=0, description="Phosphates (mg/L)")
-    bacteria_count: Optional[float] = Field(None, ge=0, description="Bacteria count (CFU/100mL)")
-    overall_quality: Optional[str] = Field(None, description="Overall quality assessment")
+    bacteria_count: Optional[float] = Field(
+        None, ge=0, description="Bacteria count (CFU/100mL)"
+    )
+    overall_quality: Optional[str] = Field(
+        None, description="Overall quality assessment"
+    )
     quality_notes: Optional[str] = Field(None, description="Quality assessment notes")
 
 
@@ -153,44 +181,62 @@ class WaterQualityResponse(WaterQualityBase):
     id: int
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class StationQuery(BaseModel):
     """Query parameters for stations."""
+
     skip: int = Field(default=0, ge=0, description="Number of records to skip")
-    limit: int = Field(default=100, ge=1, le=1000, description="Maximum number of records to return")
-    station_type: Optional[StationType] = Field(None, description="Filter by station type")
+    limit: int = Field(
+        default=100, ge=1, le=1000, description="Maximum number of records to return"
+    )
+    station_type: Optional[StationType] = Field(
+        None, description="Filter by station type"
+    )
     status: Optional[StationStatus] = Field(None, description="Filter by status")
     organization: Optional[str] = Field(None, description="Filter by organization")
-    bbox: Optional[List[float]] = Field(None, description="Bounding box [min_lon, min_lat, max_lon, max_lat]")
+    bbox: Optional[List[float]] = Field(
+        None, description="Bounding box [min_lon, min_lat, max_lon, max_lat]"
+    )
 
 
 class DataPointQuery(BaseModel):
     """Query parameters for data points."""
+
     station_id: int = Field(..., description="Station ID")
     start_time: Optional[datetime] = Field(None, description="Start time filter")
     end_time: Optional[datetime] = Field(None, description="End time filter")
     parameter: Optional[ParameterType] = Field(None, description="Filter by parameter")
-    quality_filter: Optional[QualityFlag] = Field(None, description="Filter by quality flag")
-    limit: int = Field(default=1000, ge=1, le=10000, description="Maximum number of records")
+    quality_filter: Optional[QualityFlag] = Field(
+        None, description="Filter by quality flag"
+    )
+    limit: int = Field(
+        default=1000, ge=1, le=10000, description="Maximum number of records"
+    )
 
 
 class BulkDataPointCreate(BaseModel):
     """Bulk creation of data points."""
-    data_points: List[WaterDataPointCreate] = Field(..., description="List of data points to create")
-    
-    @field_validator('data_points')
+
+    data_points: List[WaterDataPointCreate] = Field(
+        ..., description="List of data points to create"
+    )
+
+    @field_validator("data_points")
     @classmethod
-    def validate_data_points(cls, v: List[WaterDataPointCreate]) -> List[WaterDataPointCreate]:
+    def validate_data_points(
+        cls, v: List[WaterDataPointCreate]
+    ) -> List[WaterDataPointCreate]:
         if len(v) > 1000:
-            raise ValueError('Cannot create more than 1000 data points at once')
+            raise ValueError("Cannot create more than 1000 data points at once")
         return v
 
 
 class StationListResponse(BaseModel):
     """Response for station list."""
+
     stations: List[WaterStationResponse]
     total: int
     skip: int
@@ -199,6 +245,7 @@ class StationListResponse(BaseModel):
 
 class DataPointListResponse(BaseModel):
     """Response for data point list."""
+
     data_points: List[WaterDataPointResponse]
     total: int
     station_id: int
@@ -208,6 +255,7 @@ class DataPointListResponse(BaseModel):
 
 class StationStatistics(BaseModel):
     """Station statistics response."""
+
     station_id: int
     time_range: Dict[str, Optional[datetime]]
     parameters: List[Dict[str, Any]]
