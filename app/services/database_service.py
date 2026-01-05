@@ -136,23 +136,22 @@ class DatabaseService:
         self, station_id: int, parameter: Optional[str] = None
     ) -> List[WaterDataPoint]:
         """Get latest data points for a station."""
-        query = self.db.query(WaterDataPoint).filter(
-            WaterDataPoint.station_id == station_id
-        )
-
         if parameter:
-            query = query.filter(WaterDataPoint.parameter == parameter)
+            # We must filter the subquery, not just the outer query, for correctness if grabbing "latest" per parameter
+             # However, the original code attempted to filter the outer query `query = query.filter...` but then largely ignored `query` to build `latest_timestamps`.
+             # Correct approach: Filter `latest_timestamps` subquery construction if parameter is present.
+             pass
 
         # Get latest timestamp for each parameter
-        latest_timestamps = (
-            self.db.query(
+        base_stmt = self.db.query(
                 WaterDataPoint.parameter,
                 func.max(WaterDataPoint.timestamp).label("latest_time"),
-            )
-            .filter(WaterDataPoint.station_id == station_id)
-            .group_by(WaterDataPoint.parameter)
-            .subquery()
-        )
+            ).filter(WaterDataPoint.station_id == station_id)
+
+        if parameter:
+             base_stmt = base_stmt.filter(WaterDataPoint.parameter == parameter)
+
+        latest_timestamps = base_stmt.group_by(WaterDataPoint.parameter).subquery()
 
         return (
             self.db.query(WaterDataPoint)
@@ -422,28 +421,21 @@ class DatabaseService:
         end_time: Optional[datetime] = None,
     ) -> Dict[str, Any]:
         """Get statistical summary for a station."""
-        query = self.db.query(WaterDataPoint).filter(
-            WaterDataPoint.station_id == station_id
-        )
-
-        if start_time:
-            query = query.filter(WaterDataPoint.timestamp >= start_time)
-        if end_time:
-            query = query.filter(WaterDataPoint.timestamp <= end_time)
-
-        stats = (
-            self.db.query(
+        query = self.db.query(
                 WaterDataPoint.parameter,
                 func.count(WaterDataPoint.id).label("count"),
                 func.avg(WaterDataPoint.value).label("avg_value"),
                 func.min(WaterDataPoint.value).label("min_value"),
                 func.max(WaterDataPoint.value).label("max_value"),
                 func.stddev(WaterDataPoint.value).label("std_value"),
-            )
-            .filter(WaterDataPoint.station_id == station_id)
-            .group_by(WaterDataPoint.parameter)
-            .all()
-        )
+            ).filter(WaterDataPoint.station_id == station_id)
+
+        if start_time:
+            query = query.filter(WaterDataPoint.timestamp >= start_time)
+        if end_time:
+            query = query.filter(WaterDataPoint.timestamp <= end_time)
+
+        stats = query.group_by(WaterDataPoint.parameter).all()
 
         return {
             "station_id": station_id,

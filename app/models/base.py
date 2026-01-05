@@ -34,6 +34,8 @@ class BaseModel:
     @declared_attr
     def __tablename__(cls) -> str:
         """Generate table name from class name."""
+        # SQLAlchemy's @declared_attr passes the class as the first argument (cls),
+        # even though it's defined as an instance method in the mixin.
         return cls.__name__.lower()
 
     def to_dict(self) -> Dict[str, Any]:

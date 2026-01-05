@@ -112,11 +112,12 @@ def seed_data(db: Session) -> None:
                     for idx, feature_data in enumerate(features):
                         props = feature_data.get("properties", {})
                         # Try to get existing name or create one
-                        region_name = (
-                            props.get("name")
-                            or props.get("NAZ_CZNUTS3")
+                        # Try to get existing name or create one
+                        region_id_val = (
+                            props.get("NAZ_CZNUTS3")
                             or f"Region_{idx+1}"
                         )
+                        region_name = props.get("name") or region_id_val
                         feature_id_raw = (
                             props.get("id")
                             or feature_data.get("id")

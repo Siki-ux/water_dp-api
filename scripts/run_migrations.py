@@ -10,7 +10,7 @@ from pathlib import Path
 # Add the app directory to the Python path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from app.core.logging import configure_logging
+from app.core.logging_config import configure_logging
 
 logger = logging.getLogger(__name__)
 

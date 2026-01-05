@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from app.core.database import init_db
-from app.core.logging import configure_logging
+from app.core.logging_config import configure_logging
 
 logger = logging.getLogger(__name__)
 

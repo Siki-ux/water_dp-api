@@ -38,7 +38,15 @@ def main():
         )
         # specific ruff failures (like remaining errors) might exit non-zero, catch that?
         # ruff check exits non-zero if violations remain. We should continue to formatting.
-        pass
+        # ruff check exits non-zero if violations remain. We should continue to formatting.
+        # pass statement is unnecessary here since comments handle the block body if empty, or just continue.
+        # Actually empty block needs pass, but the if body has logging warning.
+        # Wait, the code is:
+        # if not run_command(...):
+        #    logger.warning(...)
+        #    pass
+        # simpler: just remove pass.
+
 
     # 2. Run Black
     # This handles code formatting (line length, spacing, etc.)
