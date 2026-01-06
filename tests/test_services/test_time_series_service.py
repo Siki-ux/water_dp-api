@@ -237,24 +237,17 @@ class TestTimeSeriesService:
         # 3. POST Link -> 201 Created
 
         with patch("app.services.time_series_service.requests.post") as mock_post:
-            # Configure side effects for sequential calls: Thing, Location, Link
+            # Configure side effects for sequential calls: Thing
             resp_thing = MagicMock()
             resp_thing.status_code = 201
             resp_thing.headers = {"Location": "http://frost/Things(100)"}
 
-            resp_loc = MagicMock()
-            resp_loc.status_code = 201
-            resp_loc.headers = {"Location": "http://frost/Locations(200)"}
-
-            resp_link = MagicMock()
-            resp_link.status_code = 201
-
-            mock_post.side_effect = [resp_thing, resp_loc, resp_link]
+            mock_post.return_value = resp_thing
 
             result = service.create_station(station_data)
 
             assert result["name"] == "New Station"
-            assert mock_post.call_count >= 2  # Thing, Location, Link (maybe 3)
+            assert mock_post.call_count == 1  # Thing + Location is now atomic
 
     def test_get_time_series_metadata(self, service):
         """Test fetching Datastream metadata."""

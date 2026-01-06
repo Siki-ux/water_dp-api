@@ -27,7 +27,7 @@
   "oauth2DevicePollingInterval": 5,
   "enabled": true,
   "sslRequired": "external",
-  "registrationAllowed": false,
+  "registrationAllowed": true,
   "registrationEmailAsUsername": false,
   "rememberMe": false,
   "verifyEmail": false,
@@ -146,6 +146,8 @@
       "username": "frontendbus",
       "enabled": true,
       "emailVerified": true,
+      "email": "frontendbus@water-dp.local",
+      "requiredActions": [],
       "firstName": "Frontend",
       "lastName": "Bus",
       "credentials": [
@@ -163,6 +165,8 @@
       "username": "siki",
       "enabled": true,
       "emailVerified": true,
+      "email": "siki@water-dp.local",
+      "requiredActions": [],
       "firstName": "Siki",
       "lastName": "User",
       "credentials": [
@@ -174,6 +178,26 @@
       ],
       "realmRoles": [
         "default-roles-timeio"
+      ]
+    },
+    {
+      "username": "admin-siki",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "admin-siki@water-dp.local",
+      "requiredActions": [],
+      "firstName": "Admin",
+      "lastName": "Siki",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-timeio",
+        "admin"
       ]
     }
   ],
@@ -195,5 +219,16 @@
         "+"
       ]
     }
-  ]
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "admin",
+        "description": "Administrator role with full API access",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "35ec6dcb-8b6b-4581-b21d-ea6aae80a789"
+      }
+    ]
+  }
 }

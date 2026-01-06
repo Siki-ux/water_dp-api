@@ -238,15 +238,24 @@ def seed_data(db: Session) -> None:
 
         # Frost URL setup
         FROST_URL = settings.frost_url
+        fallback_url = "http://localhost:8083/FROST-Server/v1.1"
+
         try:
             requests.get(FROST_URL, timeout=FROST_CHECK_TIMEOUT)
         except Exception:
-            # Fallback logic
-            fallback_url = "http://localhost:8083/FROST-Server/v1.1"
             logger.warning(
                 f"FROST check failed for {FROST_URL}. Trying fallback {fallback_url}"
             )
             FROST_URL = fallback_url
+
+        # Check if FROST is actually reachable before loop
+        try:
+            requests.get(FROST_URL, timeout=FROST_CHECK_TIMEOUT)
+        except Exception as e:
+            logger.warning(
+                f"FROST service unreachable at {FROST_URL}. Skipping TimeIO seeding: {e}"
+            )
+            return
 
         # Helper
         def ensure_frost_entity(endpoint, payload, force_recreate=False):
@@ -329,7 +338,7 @@ def seed_data(db: Session) -> None:
                 }
 
                 thing_id = ensure_frost_entity(
-                    "Things", thing_payload, force_recreate=True
+                    "Things", thing_payload, force_recreate=False
                 )
 
                 if thing_id:
@@ -339,8 +348,9 @@ def seed_data(db: Session) -> None:
                     # We can't update feature in DB easily if it came from query without session attach/merge.
                     # But db.flush() earlier means it might be attached.
                     # If loaded from DB (else block), they are attached.
-                    feature.properties["station_id"] = thing_id
-                    # flag_modified(feature, "properties") might be needed for JSON
+                    props = dict(feature.properties)
+                    props["station_id"] = thing_id
+                    feature.properties = props
 
                     ds_name = f"DS_{thing_id}_LEVEL"
                     ds_payload = {

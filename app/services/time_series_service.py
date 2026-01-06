@@ -92,7 +92,7 @@ class TimeSeriesService:
             "latitude": lat,
             "longitude": lon,
             "elevation": props.get("elevation"),
-            "station_type": props.get("type", "unknown"),
+            "station_type": props.get("type", props.get("station_type", "unknown")),
             "status": props.get("status", "unknown"),
             "organization": props.get("organization"),
             "properties": props,
@@ -102,76 +102,71 @@ class TimeSeriesService:
 
     # --- CRUD for Stations (Things) ---
     def create_station(self, station_data) -> Dict:
-        # Create Thing
+        """
+        Create a new water station (Thing) in FROST.
+        Creates Thing and Location in one atomic request to avoid $ref issues.
+        """
+        # Prepare Locations list (GeoJSON Point)
+        locations = []
+        if station_data.latitude is not None and station_data.longitude is not None:
+            locations.append(
+                {
+                    "name": f"Location for {station_data.name}",
+                    "description": f"Geo-location coordinates for station {station_data.name}",
+                    "encodingType": "application/vnd.geo+json",
+                    "location": {
+                        "type": "Point",
+                        "coordinates": [
+                            float(station_data.longitude),
+                            float(station_data.latitude),
+                        ],
+                    },
+                }
+            )
+
+        # Prepare Thing payload
         thing_payload = {
             "name": station_data.name,
             "description": station_data.description or "Water Station",
             "properties": {
                 "station_id": station_data.station_id,
-                "station_type": station_data.station_type,
-                "status": station_data.status,
+                "station_type": getattr(
+                    station_data.station_type, "value", str(station_data.station_type)
+                ),
+                "status": getattr(
+                    station_data.status, "value", str(station_data.status)
+                ),
                 "organization": station_data.organization,
                 **(station_data.properties or {}),
             },
+            "Locations": locations,
         }
 
         url = f"{self._get_frost_url()}/Things"
         try:
             resp = requests.post(url, json=thing_payload, timeout=self._get_timeout())
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                logger.error(
+                    f"FROST Station creation failed: {resp.status_code} - {resp.text}"
+                )
+                resp.raise_for_status()
+
             thing_loc = resp.headers["Location"]
             thing_id = thing_loc.split("(")[1].split(")")[0]
 
-            # Create Location
-            if station_data.latitude and station_data.longitude:
-                loc_payload = {
-                    "name": f"Loc {station_data.name}",
-                    "encodingType": "application/vnd.geo+json",
-                    "location": {
-                        "type": "Point",
-                        "coordinates": [station_data.longitude, station_data.latitude],
-                    },
-                }
-                loc_resp = requests.post(
-                    f"{self._get_frost_url()}/Locations",
-                    json=loc_payload,
-                    timeout=self._get_timeout(),
-                )
-                loc_resp.raise_for_status()
-                loc_id = loc_resp.headers["Location"].split("(")[1].split(")")[0]
-                # Link
-                link_resp = requests.post(
-                    f"{self._get_frost_url()}/Things({thing_id})/Locations/$ref",
-                    json={"@iot.id": loc_id},
-                    timeout=self._get_timeout(),
-                )
-                link_resp.raise_for_status()
-
+            # Return mapped object
             return self._map_thing_to_station(
                 {
                     "@iot.id": thing_id,
                     **thing_payload,
-                    "Locations": (
-                        [
-                            {
-                                "location": {
-                                    "coordinates": [
-                                        station_data.longitude,
-                                        station_data.latitude,
-                                    ]
-                                }
-                            }
-                        ]
-                        if station_data.latitude
-                        else []
-                    ),
                 }
             )
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to create station in FROST: {e}")
-            raise TimeSeriesException(
-                f"Failed to create station: {e}", details={"original_error": str(e)}
-            )
+            error_msg = str(e)
+            if hasattr(e, "response") and e.response is not None:
+                error_msg = f"{e.response.status_code}: {e.response.text}"
+            logger.error(f"Failed to create station in FROST: {error_msg}")
+            raise TimeSeriesException(f"Failed to create station: {error_msg}")
 
     def get_stations(self, skip: int = 0, limit: int = 100, **filters) -> List[Dict]:
         url = f"{self._get_frost_url()}/Things"
@@ -179,10 +174,6 @@ class TimeSeriesService:
         try:
             resp = requests.get(url, params=params, timeout=self._get_timeout())
             resp.raise_for_status()
-            if (
-                not resp.ok
-            ):  # Check for non-200 responses if raise_for_status didn't catch it logic (though raise_for_status should)
-                pass
 
             try:
                 things = resp.json().get("value", [])
@@ -458,6 +449,8 @@ class TimeSeriesService:
             raise TimeSeriesException(
                 f"Failed to fetch metadata for '{series_id}': {e}"
             )
+        except ResourceNotFoundException:
+            raise
         except Exception as e:
             logger.error(
                 f"Unexpected error fetching metadata by ID '{series_id}' from FROST: {e}"

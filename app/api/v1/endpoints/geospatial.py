@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user, has_role
 from app.core.database import get_db
 from app.schemas.geospatial import (
     FeatureListResponse,
@@ -30,7 +31,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post("/layers", response_model=GeoLayerResponse, status_code=201)
+@router.post(
+    "/layers",
+    response_model=GeoLayerResponse,
+    status_code=201,
+    dependencies=[Depends(has_role("admin"))],
+)
 async def create_geo_layer(layer: GeoLayerCreate, db: Session = Depends(get_db)):
     """Create a new geospatial layer."""
     db_service = DatabaseService(db)
@@ -77,7 +83,11 @@ async def get_geo_layer(layer_name: str, db: Session = Depends(get_db)):
     return db_service.get_geo_layer(layer_name)
 
 
-@router.put("/layers/{layer_name}", response_model=GeoLayerResponse)
+@router.put(
+    "/layers/{layer_name}",
+    response_model=GeoLayerResponse,
+    dependencies=[Depends(has_role("admin"))],
+)
 async def update_geo_layer(
     layer_name: str, layer_update: GeoLayerUpdate, db: Session = Depends(get_db)
 ):
@@ -86,7 +96,9 @@ async def update_geo_layer(
     return db_service.update_geo_layer(layer_name, layer_update)
 
 
-@router.delete("/layers/{layer_name}", status_code=204)
+@router.delete(
+    "/layers/{layer_name}", status_code=204, dependencies=[Depends(has_role("admin"))]
+)
 async def delete_geo_layer(layer_name: str, db: Session = Depends(get_db)):
     """Delete a geospatial layer."""
     db_service = DatabaseService(db)
@@ -94,7 +106,11 @@ async def delete_geo_layer(layer_name: str, db: Session = Depends(get_db)):
 
 
 @router.post("/features", response_model=GeoFeatureResponse, status_code=201)
-async def create_geo_feature(feature: GeoFeatureCreate, db: Session = Depends(get_db)):
+async def create_geo_feature(
+    feature: GeoFeatureCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """Create a new geospatial feature."""
     db_service = DatabaseService(db)
     return db_service.create_geo_feature(feature)
@@ -149,6 +165,7 @@ async def update_geo_feature(
     feature_update: GeoFeatureUpdate,
     layer_name: str = Query(..., description="Layer name"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Update a geospatial feature."""
     db_service = DatabaseService(db)
@@ -160,6 +177,7 @@ async def delete_geo_feature(
     feature_id: str,
     layer_name: str = Query(..., description="Layer name"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Delete a geospatial feature."""
     db_service = DatabaseService(db)
@@ -177,7 +195,9 @@ async def spatial_query(query: SpatialQuery, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/geoserver/publish", status_code=201)
+@router.post(
+    "/geoserver/publish", status_code=201, dependencies=[Depends(has_role("admin"))]
+)
 async def publish_layer_to_geoserver(
     request: LayerPublishRequest, db: Session = Depends(get_db)
 ):
@@ -197,7 +217,9 @@ async def publish_layer_to_geoserver(
         raise HTTPException(status_code=500, detail="Failed to publish layer")
 
 
-@router.delete("/geoserver/unpublish", status_code=204)
+@router.delete(
+    "/geoserver/unpublish", status_code=204, dependencies=[Depends(has_role("admin"))]
+)
 async def unpublish_layer_from_geoserver(
     request: LayerUnpublishRequest, db: Session = Depends(get_db)
 ):

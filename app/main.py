@@ -70,11 +70,11 @@ app = FastAPI(
     - 🔍 **Analytics**: Statistical analysis, anomaly detection, and aggregation
 
     ### Authentication
-    Currently using basic authentication. Contact admin for API keys.
+    Integrated with Keycloak. Use the **Authorize** button to authenticate.
     """,
-    openapi_url=f"{settings.api_prefix}/openapi.json",
-    docs_url=f"{settings.api_prefix}/docs",
-    redoc_url=f"{settings.api_prefix}/redoc",
+    openapi_url=f"{settings.api_prefix}/openapi.json" if settings.debug else None,
+    docs_url=f"{settings.api_prefix}/docs" if settings.debug else None,
+    redoc_url=f"{settings.api_prefix}/redoc" if settings.debug else None,
     lifespan=lifespan,
     contact={
         "name": "Water Data Platform Support",

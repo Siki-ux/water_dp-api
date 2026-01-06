@@ -16,8 +16,7 @@ def seeded_series_id():
     Finds a valid series_id from the seeded data to use for tests.
     """
     try:
-        # First, try to get time series metadata to find a valid ID
-        response = requests.get(f"{BASE_URL}/time-series/metadata")
+        response = requests.get(f"{BASE_URL}/time-series/metadata", timeout=10)
         assert response.status_code == 200, "Failed to get metadata list"
         data = response.json()
         series_list = data.get("series", [])
@@ -39,7 +38,7 @@ def seeded_series_id():
                 }
 
                 check_resp = requests.get(
-                    f"{BASE_URL}/time-series/data", params=check_params
+                    f"{BASE_URL}/time-series/data", params=check_params, timeout=10
                 )
                 if check_resp.status_code == 200:
                     pts = check_resp.json().get("data_points", [])
@@ -70,7 +69,7 @@ def seeded_series_id():
 @pytest.mark.integration
 def test_get_time_series_metadata_list():
     """Test retrieving list of time series metadata."""
-    response = requests.get(f"{BASE_URL}/time-series/metadata")
+    response = requests.get(f"{BASE_URL}/time-series/metadata", timeout=10)
     assert response.status_code == 200
     data = response.json()
     assert "series" in data
@@ -80,7 +79,9 @@ def test_get_time_series_metadata_list():
 @pytest.mark.integration
 def test_get_time_series_metadata_by_id(seeded_series_id):
     """Test retrieving specific time series metadata."""
-    response = requests.get(f"{BASE_URL}/time-series/metadata/{seeded_series_id}")
+    response = requests.get(
+        f"{BASE_URL}/time-series/metadata/{seeded_series_id}", timeout=10
+    )
     assert response.status_code == 200
     data = response.json()
     assert data["series_id"] == seeded_series_id
@@ -102,7 +103,7 @@ def test_get_time_series_data_points(seeded_series_id):
         "limit": 100,
     }
 
-    response = requests.get(f"{BASE_URL}/time-series/data", params=params)
+    response = requests.get(f"{BASE_URL}/time-series/data", params=params, timeout=10)
     assert response.status_code == 200
     data = response.json()
 
@@ -126,7 +127,7 @@ def test_time_series_statistics(seeded_series_id):
     params = {"start_time": start_time.isoformat(), "end_time": end_time.isoformat()}
 
     url = f"{BASE_URL}/time-series/statistics/{seeded_series_id}"
-    response = requests.get(url, params=params)
+    response = requests.get(url, params=params, timeout=10)
 
     assert response.status_code == 200
     data = response.json()
@@ -158,7 +159,9 @@ def test_time_series_aggregation(seeded_series_id):
         "aggregation_method": "mean",
     }
 
-    response = requests.post(f"{BASE_URL}/time-series/aggregate", json=payload)
+    response = requests.post(
+        f"{BASE_URL}/time-series/aggregate", json=payload, timeout=10
+    )
 
     if response.status_code == 501:  # Not implemented
         pytest.skip("Aggregation not implemented")
@@ -178,7 +181,7 @@ def test_time_series_aggregation(seeded_series_id):
 def test_time_series_data_missing_series():
     """Test error handling for non-existent series."""
     params = {"series_id": "NON_EXISTENT_ID_99999"}
-    response = requests.get(f"{BASE_URL}/time-series/data", params=params)
+    response = requests.get(f"{BASE_URL}/time-series/data", params=params, timeout=10)
 
     # Depending on implementation, might return 404 or empty list
     # Assuming standard REST patterns for "series not found" usually 404

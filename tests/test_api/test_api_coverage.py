@@ -1,19 +1,10 @@
 from datetime import datetime
 from unittest.mock import patch
 
-import pytest
-from fastapi.testclient import TestClient
-
-from app.main import app
-
 # Note: We rely on the autouse fixture 'disable_seeding' from conftest.py to keep these fast.
 
 
 class TestApiCoverage:
-    @pytest.fixture
-    def client(self, mock_db_session):
-        with TestClient(app) as c:
-            yield c
 
     # --- Geospatial API Coverage ---
     def test_get_geo_layers_filters_memory(self, client):

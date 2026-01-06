@@ -8,6 +8,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user, has_role
 from app.core.database import get_db
 from app.schemas.water_data import (
     BulkDataPointCreate,
@@ -29,7 +30,11 @@ router = APIRouter()
 
 
 @router.post("/stations", response_model=WaterStationResponse, status_code=201)
-async def create_station(station: WaterStationCreate, db: Session = Depends(get_db)):
+async def create_station(
+    station: WaterStationCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """Create a new water station."""
     service = TimeSeriesService(db)
     return service.create_station(station)
@@ -66,7 +71,10 @@ async def get_station(station_id: str, db: Session = Depends(get_db)):
 
 @router.put("/stations/{station_id}", response_model=WaterStationResponse)
 async def update_station(
-    station_id: str, station_update: WaterStationUpdate, db: Session = Depends(get_db)
+    station_id: str,
+    station_update: WaterStationUpdate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Update a water station."""
     service = TimeSeriesService(db)
@@ -74,7 +82,9 @@ async def update_station(
     return service.update_station(station_id, update_data)
 
 
-@router.delete("/stations/{station_id}", status_code=204)
+@router.delete(
+    "/stations/{station_id}", status_code=204, dependencies=[Depends(has_role("admin"))]
+)
 async def delete_station(station_id: str, db: Session = Depends(get_db)):
     """Delete a water station."""
     service = TimeSeriesService(db)
@@ -84,7 +94,9 @@ async def delete_station(station_id: str, db: Session = Depends(get_db)):
 
 @router.post("/data-points", response_model=WaterDataPointResponse, status_code=201)
 async def create_data_point(
-    data_point: WaterDataPointCreate, db: Session = Depends(get_db)
+    data_point: WaterDataPointCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Create a new water data point."""
     service = TimeSeriesService(db)
@@ -95,7 +107,9 @@ async def create_data_point(
     "/data-points/bulk", response_model=List[WaterDataPointResponse], status_code=201
 )
 async def create_bulk_data_points(
-    bulk_data: BulkDataPointCreate, db: Session = Depends(get_db)
+    bulk_data: BulkDataPointCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Create multiple water data points."""
     service = TimeSeriesService(db)
@@ -218,7 +232,9 @@ async def get_station_statistics(
 
 @router.post("/quality", response_model=WaterQualityResponse, status_code=201)
 async def create_quality_data(
-    quality_data: WaterQualityCreate, db: Session = Depends(get_db)
+    quality_data: WaterQualityCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Create water quality data."""
     try:

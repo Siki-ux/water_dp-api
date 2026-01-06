@@ -15,12 +15,42 @@ except Exception:
         print(f"Error reading file: {e}")
         exit(1)
 
+# Enable Registration
+data["registrationAllowed"] = True
+print("Enabled User Registration.")
+
+# Ensure roles section exists and has "admin" role
+if "roles" not in data:
+    data["roles"] = {"realm": []}
+if "realm" not in data["roles"]:
+    data["roles"]["realm"] = []
+
+admin_role_found = False
+for role in data["roles"]["realm"]:
+    if role.get("name") == "admin":
+        admin_role_found = True
+        break
+
+if not admin_role_found:
+    data["roles"]["realm"].append(
+        {
+            "name": "admin",
+            "description": "Administrator role with full API access",
+            "composite": False,
+            "clientRole": False,
+            "containerId": data.get("id", "35ec6dcb-8b6b-4581-b21d-ea6aae80a789"),
+        }
+    )
+    print("Added 'admin' role to realm.")
+
 # Define users to add
 users = [
     {
         "username": "frontendbus",
         "enabled": True,
         "emailVerified": True,
+        "email": "frontendbus@water-dp.local",
+        "requiredActions": [],
         "firstName": "Frontend",
         "lastName": "Bus",
         "credentials": [
@@ -36,6 +66,8 @@ users = [
         "username": "siki",
         "enabled": True,
         "emailVerified": True,
+        "email": "siki@water-dp.local",
+        "requiredActions": [],
         "firstName": "Siki",
         "lastName": "User",
         "credentials": [
@@ -46,6 +78,23 @@ users = [
             }
         ],
         "realmRoles": ["default-roles-timeio"],
+    },
+    {
+        "username": "admin-siki",
+        "enabled": True,
+        "emailVerified": True,
+        "email": "admin-siki@water-dp.local",
+        "requiredActions": [],
+        "firstName": "Admin",
+        "lastName": "Siki",
+        "credentials": [
+            {
+                "type": "password",
+                "value": os.getenv("SEED_USER_ADMIN_SIKI_PASS", "admin-password"),
+                "temporary": False,
+            }
+        ],
+        "realmRoles": ["default-roles-timeio", "admin"],
     },
 ]
 

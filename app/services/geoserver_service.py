@@ -36,7 +36,7 @@ class GeoServerService:
         self.wcs_url = f"{self.base_url}/wcs"
 
     def _make_request(
-        self, method: str, endpoint: str, raise_for_status: bool = True, **kwargs
+        self, method: str, endpoint: str, check_status: bool = True, **kwargs
     ) -> requests.Response:
         """Make HTTP request to GeoServer."""
         endpoint = endpoint.lstrip("/")
@@ -47,7 +47,7 @@ class GeoServerService:
 
         try:
             response = requests.request(method, url, **kwargs)
-            if raise_for_status:
+            if check_status:
                 response.raise_for_status()
             return response
         except requests.exceptions.RequestException as e:
@@ -74,7 +74,7 @@ class GeoServerService:
         try:
             # Check if workspace exists
             resp = self._make_request(
-                "GET", f"/workspaces/{workspace_name}.json", raise_for_status=False
+                "GET", f"/workspaces/{workspace_name}.json", check_status=False
             )
             if resp.status_code == 200:
                 logger.info(f"Workspace {workspace_name} already exists")
@@ -106,7 +106,7 @@ class GeoServerService:
             resp = self._make_request(
                 "GET",
                 f"/workspaces/{self.workspace}/datastores/{store_name}.json",
-                raise_for_status=False,
+                check_status=False,
             )
             if resp.status_code == 200:
                 logger.info(f"Data store {store_name} already exists")
@@ -191,7 +191,7 @@ class GeoServerService:
             resp = self._make_request(
                 "GET",
                 f"/workspaces/{workspace}/layers/{layer_name}.json",
-                raise_for_status=False,
+                check_status=False,
             )
             if resp.status_code == 200:
                 logger.info(f"Layer {layer_name} already exists. Skipping.")

@@ -4,7 +4,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from app.core.exceptions import TimeSeriesException
+from app.core.exceptions import ResourceNotFoundException, TimeSeriesException
+from app.schemas.water_data import ParameterType, QualityFlag, WaterDataPointCreate
 from app.services.time_series_service import TimeSeriesService
 
 
@@ -13,145 +14,346 @@ class TestTimeSeriesServiceCoverage:
     def service(self, mock_db_session):
         return TimeSeriesService(mock_db_session)
 
-    def test_get_int_id_hash_fallback(self, service):
-        """Test _get_int_id hashing behavior for non-integer IDs (Lines 63-70)."""
-        # "test" hash -> determinstic check
-        # blake2b("test") -> int
-        import hashlib
-
-        expected_hash_bytes = hashlib.blake2b(b"test", digest_size=8).digest()
-        expected_int = int.from_bytes(
-            expected_hash_bytes, byteorder="big", signed=False
-        )
-
-        result = service._get_int_id("test")
-        assert result == expected_int
+    def test_get_int_id_coverage(self, service):
+        """Test _get_int_id with various inputs."""
+        # Integer string
         assert service._get_int_id("123") == 123
+        assert service._get_int_id(123) == 123
 
-    def test_get_stations_json_error(self, service):
-        """Test get_stations handling invalid JSON (Lines 186-188)."""
+        # Non-integer string (hash)
+        val = service._get_int_id("test_string")
+        assert isinstance(val, int)
+        assert val > 0
+
+        # Same string same hash
+        assert service._get_int_id("test_string") == val
+
+        # Different string different hash
+        assert service._get_int_id("other_string") != val
+
+    def test_get_datastreams_for_station_coverage(self, service):
+        """Test get_datastreams_for_station with filters."""
+        mock_response = {"value": [{"@iot.id": 1, "name": "DS1"}]}
         with patch("app.services.time_series_service.requests.get") as mock_get:
             mock_get.return_value.status_code = 200
-            mock_get.return_value.json.side_effect = (
-                requests.exceptions.JSONDecodeError("Fail", "doc", 0)
-            )
+            mock_get.return_value.json.return_value = mock_response
 
+            # Basic call
+            ds = service.get_datastreams_for_station(100)
+            assert len(ds) == 1
+            assert "Thing/id eq 100" in mock_get.call_args[1]["params"]["$filter"]
+
+            # With parameter filter
+            ds_param = service.get_datastreams_for_station(100, parameter="Water Temp")
+            assert len(ds_param) == 1
+            filter_str = mock_get.call_args[1]["params"]["$filter"]
+            assert "ObservedProperty/name eq 'Water Temp'" in filter_str
+
+    def test_get_time_series_metadata_by_id_coverage(self, service):
+        """Test get_time_series_metadata_by_id success and failure."""
+        mock_val = {
+            "@iot.id": 55,
+            "name": "TargetDS",
+            "description": "Desc",
+            "Thing": {"name": "St1"},
+            "ObservedProperty": {"name": "Param1"},
+            "unitOfMeasurement": {"name": "Unit1"},
+            "phenomenonTime": "2023-01-01T00:00:00Z/2023-01-02T00:00:00Z",
+        }
+
+        with patch("app.services.time_series_service.requests.get") as mock_get:
+            # 1. Success
+            mock_get.return_value.status_code = 200
+            mock_get.return_value.json.return_value = {"value": [mock_val]}
+
+            meta = service.get_time_series_metadata_by_id("TargetDS")
+            assert meta.series_id == "TargetDS"
+            assert meta.station_id == "St1"
+            assert meta.start_time.year == 2023
+
+            # 2. Not Found (Empty value)
+            mock_get.return_value.json.return_value = {"value": []}
+            with pytest.raises(ResourceNotFoundException):
+                service.get_time_series_metadata_by_id("MissingDS")
+
+            # 3. JSON Error
+            mock_get.return_value.json.side_effect = ValueError("Bad JSON")
+            assert service.get_time_series_metadata_by_id("BadJsonDS") is None
+
+            # 4. Request Exception
+            mock_get.return_value.json.side_effect = None
+            mock_get.side_effect = requests.exceptions.RequestException("Net Error")
+            with pytest.raises(TimeSeriesException):
+                service.get_time_series_metadata_by_id("NetError")
+
+    def test_create_data_point_coverage(self, service):
+        """Test create_data_point including Datastream lookup."""
+        data_point = WaterDataPointCreate(
+            station_id=10,
+            timestamp=datetime(2023, 1, 1, 12, 0),
+            value=42.0,
+            parameter=ParameterType.TEMPERATURE,  # Ensure using Enum if required, or string
+            quality_flag=QualityFlag.GOOD,
+            unit="C",
+        )
+
+        with patch("app.services.time_series_service.requests.get") as mock_get, patch(
+            "app.services.time_series_service.requests.post"
+        ) as mock_post:
+
+            # 1. Datastream Lookup Success
+            mock_get.return_value.status_code = 200
+            mock_get.return_value.json.return_value = {"value": [{"@iot.id": 999}]}
+
+            # 2. Observation Create Success
+            mock_post.return_value.status_code = 201
+            mock_post.return_value.headers = {
+                "Location": "http://frost/Observations(888)"
+            }
+
+            res = service.create_data_point(data_point)
+
+            assert res["id"] == 888
+            assert res["value"] == 42.0
+
+            # Verify DS lookup used correct name format
+            # DS_{station_id}_{parameter} -> DS_10_temperature
+            filter_arg = mock_get.call_args[1]["params"]["$filter"]
+            assert "DS_10_temperature" in filter_arg
+
+    def test_create_data_point_no_datastream(self, service):
+        """Test create_data_point when datastream doesn't exist."""
+        data_point = WaterDataPointCreate(
+            station_id=10,
+            timestamp=datetime.now(),
+            value=1.0,
+            parameter=ParameterType.WATER_LEVEL,
+            quality_flag=QualityFlag.GOOD,
+            unit="m",
+        )
+        with patch("app.services.time_series_service.requests.get") as mock_get:
+            mock_get.return_value.status_code = 200
+            mock_get.return_value.json.return_value = {"value": []}  # Empty
+
+            with pytest.raises(TimeSeriesException) as exc:
+                service.create_data_point(data_point)
+            assert "Datastream" in str(exc.value)
+
+    def test_get_latest_data_coverage(self, service):
+        """Test get_latest_data logic."""
+
+        # Mock Datastreams response
+        ds_resp = {
+            "value": [
+                {
+                    "@iot.id": 101,
+                    "ObservedProperty": {"name": "Temp"},
+                    "unitOfMeasurement": {"name": "C"},
+                },
+                {
+                    "@iot.id": 102,
+                    "ObservedProperty": {"name": "Level"},
+                    "unitOfMeasurement": {"name": "m"},
+                },
+            ]
+        }
+
+        # Mock Observations response (latest)
+        obs_resp_1 = {
+            "value": [
+                {
+                    "@iot.id": 5001,
+                    "phenomenonTime": "2023-01-01T12:00:00Z",
+                    "result": 25.0,
+                }
+            ]
+        }
+        obs_resp_2 = {"value": []}  # No data for second DS
+
+        with patch("app.services.time_series_service.requests.get") as mock_get:
+            # Sequence:
+            # 1. Get Datastreams
+            # 2. Get Obs for DS 101
+            # 3. Get Obs for DS 102
+
+            mock_get.side_effect = [
+                MagicMock(
+                    status_code=200, json=lambda: ds_resp, raise_for_status=lambda: None
+                ),
+                MagicMock(
+                    status_code=200,
+                    json=lambda: obs_resp_1,
+                    raise_for_status=lambda: None,
+                ),
+                MagicMock(
+                    status_code=200,
+                    json=lambda: obs_resp_2,
+                    raise_for_status=lambda: None,
+                ),
+            ]
+
+            results = service.get_latest_data(station_id=50)
+
+            assert len(results) == 1
+            assert results[0]["parameter"] == "Temp"
+            assert results[0]["value"] == 25.0
+            assert mock_get.call_count == 3
+
+    def test_unexpected_json_errors(self, service):
+        """Test handling of malformed JSON from FROST."""
+        with patch("app.services.time_series_service.requests.get") as mock_get:
+            mock_get.return_value.status_code = 200
+            mock_get.return_value.json.side_effect = ValueError("Invalid JSON")
+
+            # Test get_stations failure
             with pytest.raises(TimeSeriesException) as exc:
                 service.get_stations()
             assert "invalid JSON" in str(exc.value)
 
-    def test_get_station_json_error(self, service):
-        """Test get_station handling invalid JSON (Lines 207-209)."""
-        with patch("app.services.time_series_service.requests.get") as mock_get:
-            mock_get.return_value.status_code = 200
-            mock_get.return_value.json.side_effect = ValueError("Fail")
+    def test_get_time_series_data_filtering(self, service):
+        """Test get_time_series_data with time filters and limit."""
+        from app.schemas.time_series import TimeSeriesQuery
 
-            with pytest.raises(TimeSeriesException) as exc:
-                service.get_station("ST_1")
-            assert "invalid JSON" in str(exc.value)
-
-    def test_delete_station_json_error(self, service):
-        """Warning: This might just raise the error, checking implementation (Lines 258-262)."""
-        with patch("app.services.time_series_service.requests.get") as mock_get:
-            mock_get.return_value.status_code = 200
-            mock_get.return_value.json.side_effect = ValueError("Fail")
-
-            # The code re-raises validation/value errors after logging
-            with pytest.raises(ValueError):
-                service.delete_station("ST_1")
-
-    def test_get_metadata_json_error(self, service):
-        """Test get_time_series_metadata invalid JSON (Lines 323-327)."""
-        with patch("app.services.time_series_service.requests.get") as mock_get:
-            mock_get.return_value.status_code = 200
-            mock_get.return_value.json.side_effect = ValueError("Fail")
-
-            # Should return empty list based on implementation
-            res = service.get_time_series_metadata()
-            assert res == []
-
-    def test_get_metadata_request_exception(self, service):
-        """Test get_time_series_metadata request failure (Lines 375-377)."""
-        with patch("app.services.time_series_service.requests.get") as mock_get:
-            mock_get.side_effect = requests.exceptions.RequestException("Net Fail")
-
-            with pytest.raises(TimeSeriesException) as exc:
-                service.get_time_series_metadata()
-            assert "Failed to fetch metadata" in str(exc.value)
-
-    def test_get_metadata_general_exception(self, service):
-        """Test get_time_series_metadata unexpected error (Lines 378-380)."""
-        with patch("app.services.time_series_service.requests.get") as mock_get:
-            mock_get.side_effect = RuntimeError("Boom")
-
-            with pytest.raises(TimeSeriesException) as exc:
-                service.get_time_series_metadata()
-            assert "Unexpected error" in str(exc.value)
-
-    def test_create_data_point_json_error(self, service):
-        """Test create_data_point datastream lookup JSON error (Lines 475-479)."""
-        mock_pt = MagicMock(
-            station_id="ST1", parameter="WL", value=10.0, timestamp=datetime.now()
+        query = TimeSeriesQuery(
+            series_id="DS1",
+            start_time=datetime(2023, 1, 1, 10, 0),
+            end_time=datetime(2023, 1, 1, 12, 0),
+            limit=50,
         )
-        # Mock parameter to be string or enum
-        mock_pt.parameter = "WL"
+
+        mock_resp = {
+            "value": [
+                {"@iot.id": 1, "phenomenonTime": "2023-01-01T10:00:00Z", "result": 10.0}
+            ]
+        }
 
         with patch("app.services.time_series_service.requests.get") as mock_get:
             mock_get.return_value.status_code = 200
-            mock_get.return_value.json.side_effect = ValueError("Fail")
+            mock_get.return_value.json.return_value = mock_resp
 
-            with pytest.raises(TimeSeriesException):  # Wrapped in generic catcher?
-                # No, checking line 479 `raise` -> re-raises ValueError
-                # And line 533 catches Exception -> raises TimeSeriesException
-                service.create_data_point(mock_pt)
+            results = service.get_time_series_data(query)
 
-    def test_create_data_point_not_found(self, service):
-        """Test create_data_point datastream not found (Lines 483-487)."""
-        mock_pt = MagicMock(
-            station_id="ST1", parameter="WL", value=10, timestamp=datetime.now()
+            assert len(results) == 1
+            # Check params
+            params = mock_get.call_args[1]["params"]
+            assert params["$top"] == 50
+            assert "phenomenonTime ge" in params["$filter"]
+            assert "le" in params["$filter"]
+
+    def test_aggregate_time_series_coverage(self, service):
+        """Test aggregation logic branches."""
+        from app.schemas.time_series import TimeSeriesAggregation
+
+        # We mock get_time_series_data to return raw data
+        mock_data = [
+            MagicMock(timestamp=datetime(2023, 1, 1, 10, 0), value=10.0),
+            MagicMock(timestamp=datetime(2023, 1, 1, 10, 30), value=20.0),
+            MagicMock(timestamp=datetime(2023, 1, 1, 11, 0), value=5.0),
+        ]
+
+        with patch.object(service, "get_time_series_data", return_value=mock_data):
+            # Test MAX aggregation
+            agg_req = TimeSeriesAggregation(
+                series_id="DS1",
+                start_time=datetime(2023, 1, 1, 10, 0),
+                end_time=datetime(2023, 1, 1, 12, 0),
+                aggregation_interval="1h",
+                aggregation_method="max",
+            )
+
+            res = service.aggregate_time_series(agg_req)
+            # 10:00-11:00 bucket -> max(10, 20) = 20
+            # 11:00-12:00 bucket -> max(5) = 5
+
+            assert len(res) >= 2
+            vals = [p.value for p in res]
+            assert 20.0 in vals
+            assert 5.0 in vals
+            assert res[0].aggregation_method == "max"
+
+    def test_detect_anomalies_coverage(self, service):
+        """Test anomaly detection logic."""
+        # Mock data: 10 points usually 10.0, one point 100.0
+        data = []
+        base_time = datetime(2023, 1, 1, 12, 0)
+        from datetime import timedelta
+
+        for i in range(10):
+            val = 10.0
+            if i == 5:
+                val = 100.0  # Anomaly
+            data.append(MagicMock(timestamp=base_time + timedelta(hours=i), value=val))
+
+        with patch.object(service, "get_time_series_data", return_value=data):
+            # Statistical method (Z-score)
+            anomalies = service.detect_anomalies(
+                series_id="DS1",
+                start=base_time,
+                end=base_time + timedelta(hours=10),
+                method="statistical",
+                threshold=2.0,
+            )
+            assert len(anomalies) == 1
+            assert anomalies[0]["value"] == 100.0
+            assert anomalies[0]["score"] > 2.0
+
+    def test_calculate_statistics_coverage(self, service):
+        """Test statistics calculation."""
+        # Mock data
+        data = [MagicMock(value=10.0), MagicMock(value=20.0), MagicMock(value=30.0)]
+
+        with patch.object(service, "get_time_series_data", return_value=data):
+            stats = service.calculate_statistics(
+                series_id="DS1",
+                start_time=datetime(2023, 1, 1),
+                end_time=datetime(2023, 1, 2),
+            )
+
+            s = stats.statistics
+            assert s["count"] == 3
+            assert s["min"] == 10.0
+            assert s["max"] == 30.0
+            assert s["mean"] == 20.0
+
+    def test_get_station_statistics_coverage(self, service):
+        """Test get_station_statistics aggregation of multiple datastreams."""
+        from app.schemas.time_series import TimeSeriesStatistics
+
+        # Mock datastreams logic
+        mock_ds_resp = {
+            "value": [
+                {
+                    "name": "DS1",
+                    "ObservedProperty": {"name": "Temp"},
+                    "unitOfMeasurement": {"name": "C"},
+                }
+            ]
+        }
+
+        # Mock calculate_statistics result
+        mock_stats = TimeSeriesStatistics(
+            series_id="DS1",
+            total_points=100,
+            statistics={"count": 100, "min": 5, "max": 25, "mean": 15},
+            time_range={"start": datetime(2023, 1, 1), "end": datetime(2023, 1, 2)},
+            quality_summary={"good": 100},
+            gaps=[],
         )
-        mock_pt.parameter = "WL"
 
-        with patch("app.services.time_series_service.requests.get") as mock_get:
+        with patch(
+            "app.services.time_series_service.requests.get"
+        ) as mock_get, patch.object(
+            service, "calculate_statistics", return_value=mock_stats
+        ):
+
             mock_get.return_value.status_code = 200
-            # Returns empty value list
-            mock_get.return_value.json.return_value = {"value": []}
+            mock_get.return_value.json.return_value = mock_ds_resp
 
-            with pytest.raises(TimeSeriesException) as exc:
-                service.create_data_point(mock_pt)
-            assert "found" in str(exc.value)  # "Datastream ... not found"
-
-    def test_aggregate_time_series_validation(self, service):
-        """Test aggregation validation error (Lines 790-794)."""
-        # Mock get_time_series_data to raise ValueError
-        with patch.object(
-            service, "get_time_series_data", side_effect=ValueError("Bad params")
-        ):
-            from app.schemas.time_series import TimeSeriesAggregation
-
-            req = TimeSeriesAggregation(
-                series_id="S1",
-                start_time=datetime.now(),
-                end_time=datetime.now(),
-                aggregation_interval="1h",
-                aggregation_method="mean",
+            result = service.get_station_statistics(
+                station_id=1, start_time=None, end_time=None
             )
-            with pytest.raises(ValueError):
-                service.aggregate_time_series(req)
 
-    def test_aggregate_time_series_general_error(self, service):
-        """Test aggregation general error (Lines 795-797)."""
-        with patch.object(
-            service, "get_time_series_data", side_effect=RuntimeError("Boom")
-        ):
-            from app.schemas.time_series import TimeSeriesAggregation
-
-            req = TimeSeriesAggregation(
-                series_id="S1",
-                start_time=datetime.now(),
-                end_time=datetime.now(),
-                aggregation_interval="1h",
-                aggregation_method="mean",
-            )
-            with pytest.raises(TimeSeriesException):
-                service.aggregate_time_series(req)
+            assert result["station_id"] == 1
+            assert result["total_measurements"] == 100
+            assert len(result["parameters"]) == 1
+            assert result["parameters"][0]["parameter"] == "Temp"

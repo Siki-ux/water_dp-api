@@ -56,12 +56,20 @@ class DatabaseService:
 
     def get_geo_layer(self, layer_name: str) -> Optional[GeoLayer]:
         """Get a specific geospatial layer."""
-        layer = (
-            self.db.query(GeoLayer).filter(GeoLayer.layer_name == layer_name).first()
-        )
-        if not layer:
-            raise ResourceNotFoundException(f"Geo layer '{layer_name}' not found.")
-        return layer
+        try:
+            layer = (
+                self.db.query(GeoLayer)
+                .filter(GeoLayer.layer_name == layer_name)
+                .first()
+            )
+            if not layer:
+                raise ResourceNotFoundException(f"Geo layer '{layer_name}' not found.")
+            return layer
+        except Exception as e:
+            if isinstance(e, ResourceNotFoundException):
+                raise
+            logger.error(f"Failed to get geo layer {layer_name}: {e}")
+            raise DatabaseException(f"Failed to get geo layer: {e}")
 
     def update_geo_layer(
         self, layer_name: str, layer_update: GeoLayerUpdate
@@ -81,7 +89,7 @@ class DatabaseService:
             self.db.refresh(layer)
             logger.info(f"Updated geo layer: {layer_name}")
             return layer
-        except DatabaseException:
+        except (ResourceNotFoundException, DatabaseException):
             raise
         except Exception as e:
             logger.error(f"Failed to update geo layer {layer_name}: {e}")
@@ -97,7 +105,7 @@ class DatabaseService:
             self.db.commit()
             logger.info(f"Deleted geo layer: {layer_name}")
             return True
-        except ResourceNotFoundException:
+        except (ResourceNotFoundException, DatabaseException):
             raise
         except Exception as e:
             logger.error(f"Failed to delete geo layer {layer_name}: {e}")
@@ -162,7 +170,7 @@ class DatabaseService:
         )
         if not feature:
             raise ResourceNotFoundException(
-                f"Description '{feature_id}' not found in layer '{layer_name}'."
+                f"Feature '{feature_id}' not found in layer '{layer_name}'."
             )
         return feature
 
@@ -181,7 +189,7 @@ class DatabaseService:
             self.db.commit()
             self.db.refresh(feature)
             return feature
-        except ResourceNotFoundException:
+        except (ResourceNotFoundException, DatabaseException):
             raise
         except Exception as e:
             logger.error(f"Failed to update geo feature {feature_id}: {e}")
@@ -196,7 +204,7 @@ class DatabaseService:
             self.db.delete(feature)
             self.db.commit()
             return True
-        except ResourceNotFoundException:
+        except (ResourceNotFoundException, DatabaseException):
             raise
         except Exception as e:
             logger.error(f"Failed to delete geo feature {feature_id}: {e}")

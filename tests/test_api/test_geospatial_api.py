@@ -1,25 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-import pytest
-from fastapi.testclient import TestClient
-
-from app.core.database import get_db
 from app.core.exceptions import DatabaseException, ResourceNotFoundException
-from app.main import app
-
-
-@pytest.fixture
-def client(mock_db_session):
-    def override_get_db():
-        try:
-            yield mock_db_session
-        finally:
-            pass
-
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
 
 
 def test_create_geo_layer(client):
