@@ -69,8 +69,9 @@ water_dp/
 
 ### 3. Application Layer
 - **FastAPI Backend (Water DP)**:
-    - **Role**: Main application logic, serving the frontend and orchestrating data
-    - **Integration**: Queries TimescaleDB directly for analytics (anomaly detection) and lists metadata from the database
+    - **Role**: Main application logic, serving the frontend and orchestrating data.
+    - **Security**: Protected by **Keycloak** (JWT Bearer Token authentication).
+    - **Integration**: Queries TimescaleDB directly for analytics (anomaly detection) and lists metadata from the database.
 - **GeoServer**:
     - **Role**: Serves geospatial maps (WMS/WFS)
     - **Integration**: Connects to PostGIS tables in PostgreSQL to serve vector layers (e.g., rivers, regions)
@@ -178,6 +179,12 @@ The `timeio.env.example` and `timeio-realm.json` files contain default passwords
 - **CORS**: `CORS_ORIGINS` defaults to `*` to facilitate local development. In production, set this to the specific domain(s) of your frontend application in `.env`.
 - **Keycloak Redirects**: The default Keycloak configuration allows redirects to localhost ports (8000, 8080, 8082, 3000). Ensure `scripts/configure_keycloak_realm.py` or your realm configuration is updated to reflect your actual production domains and ports.
 
+### 3. Hardcoded Credentials & Roles
+The system is seeded with default users and roles (e.g., in `scripts/configure_keycloak_realm.py`) for ease of development. 
+
+> [!CRITICAL]
+> **Production Safety**: You **MUST** modify these hardcoded users, passwords, and role assignments before deploying to any production environment. The default `admin-siki` and `frontendbus` users provide extensive access that would be dangerous if left unchanged.
+
 ## Quick Start
 
 ### Prerequisites
@@ -235,6 +242,11 @@ The `timeio.env.example` and `timeio-realm.json` files contain default passwords
    - **Thing Management**: [http://localhost:8082/things](http://localhost:8082/things) (Default: `admin` / `admin` via Keycloak)
    - **Frost API**: [http://localhost:8083/FROST-Server](http://localhost:8083/FROST-Server)
    - **Grafana**: [http://localhost:3000/login](http://localhost:3000/login) (Default: `admin` / `admin`)
+   - **Keycloak Console**: [http://localhost:8081/admin](http://localhost:8081/admin) (Default: `admin` / `admin`)
+   
+   **Default Application Users (Development Only):**
+   - **Admin User**: `admin-siki` / `admin-password` (Full API access)
+   - **Frontend User**: `frontendbus` / `frontend-password` (Limited access)
 
 ### Verification
 To verify that the entire stack is working correctly (Layers, Features, Data Linkage, and Time Series content), run the included verification script:
@@ -265,13 +277,23 @@ poetry shell
 ### Running Tests
 The project includes a comprehensive test suite using `pytest`.
 
+> [!NOTE]
+> Database seeding is automatically disabled during unit tests (`conftest.py` fixture) for speed.
+
 ```bash
-# Run Unit Tests (Fast, Mocked) - Default
+# Run Unit Tests (Fast, Mocked) - Default (excludes integration)
 poetry run pytest
 
 # Run Integration Tests (Requires running stack)
-# Ensure docker-compose is up
-poetry run pytest tests/integration
+poetry run pytest -m integration
+
+# Run Specific Test Categories (Markers)
+poetry run pytest -m api
+poetry run pytest -m services
+poetry run pytest -m core
+
+# Run Coverage Tests
+poetry run pytest tests/test_services/test_time_series_service_coverage.py
 ```
 
 ### Code Structure
@@ -457,8 +479,8 @@ We need efficient tools for loading large datasets without blocking the API.
 
 ### Fixes
 - [x] Use TimeIO to replace the custom time-series storage engine
-- [ ] Use Keycloak for authentication properly
-- [ ] Fix security problems with project
+- [x] Use Keycloak for authentication properly
+- [/] Fix security problems with project
 
 ## Contributing
 

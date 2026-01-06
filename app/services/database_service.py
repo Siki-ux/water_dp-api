@@ -8,6 +8,7 @@ from typing import List, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import DatabaseException, ResourceNotFoundException
 from app.models.geospatial import GeoFeature, GeoLayer
 from app.schemas.geospatial import (
     GeoFeatureCreate,
@@ -38,7 +39,7 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"Failed to create geo layer: {e}")
             self.db.rollback()
-            raise
+            raise DatabaseException(f"Failed to create geo layer: {e}")
 
     def get_geo_layers(
         self, workspace: Optional[str] = None, layer_type: Optional[str] = None
@@ -55,16 +56,29 @@ class DatabaseService:
 
     def get_geo_layer(self, layer_name: str) -> Optional[GeoLayer]:
         """Get a specific geospatial layer."""
-        return self.db.query(GeoLayer).filter(GeoLayer.layer_name == layer_name).first()
+        try:
+            layer = (
+                self.db.query(GeoLayer)
+                .filter(GeoLayer.layer_name == layer_name)
+                .first()
+            )
+            if not layer:
+                raise ResourceNotFoundException(f"Geo layer '{layer_name}' not found.")
+            return layer
+        except Exception as e:
+            if isinstance(e, ResourceNotFoundException):
+                raise
+            logger.error(f"Failed to get geo layer {layer_name}: {e}")
+            raise DatabaseException(f"Failed to get geo layer: {e}")
 
     def update_geo_layer(
         self, layer_name: str, layer_update: GeoLayerUpdate
     ) -> Optional[GeoLayer]:
         """Update a geospatial layer."""
         try:
-            layer = self.get_geo_layer(layer_name)
-            if not layer:
-                return None
+            layer = self.get_geo_layer(
+                layer_name
+            )  # Will raise ResourceNotFoundException if not found
 
             update_data = layer_update.model_dump(exclude_unset=True)
             for key, value in update_data.items():
@@ -75,26 +89,28 @@ class DatabaseService:
             self.db.refresh(layer)
             logger.info(f"Updated geo layer: {layer_name}")
             return layer
+        except (ResourceNotFoundException, DatabaseException):
+            raise
         except Exception as e:
             logger.error(f"Failed to update geo layer {layer_name}: {e}")
             self.db.rollback()
-            raise
+            raise DatabaseException(f"Failed to update geo layer: {e}")
 
     def delete_geo_layer(self, layer_name: str) -> bool:
         """Delete a geospatial layer."""
         try:
-            layer = self.get_geo_layer(layer_name)
-            if not layer:
-                return False
+            layer = self.get_geo_layer(layer_name)  # Raises ResourceNotFoundException
 
             self.db.delete(layer)
             self.db.commit()
             logger.info(f"Deleted geo layer: {layer_name}")
             return True
+        except (ResourceNotFoundException, DatabaseException):
+            raise
         except Exception as e:
             logger.error(f"Failed to delete geo layer {layer_name}: {e}")
             self.db.rollback()
-            raise
+            raise DatabaseException(f"Failed to delete geo layer: {e}")
 
     def create_geo_feature(self, feature_data: GeoFeatureCreate) -> GeoFeature:
         """Create a new geospatial feature."""
@@ -107,7 +123,7 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"Failed to create geo feature: {e}")
             self.db.rollback()
-            raise
+            raise DatabaseException(f"Failed to create geo feature: {e}")
 
     def get_geo_features(
         self,
@@ -145,13 +161,18 @@ class DatabaseService:
 
     def get_geo_feature(self, feature_id: str, layer_name: str) -> Optional[GeoFeature]:
         """Get a specific geospatial feature."""
-        return (
+        feature = (
             self.db.query(GeoFeature)
             .filter(
                 GeoFeature.feature_id == feature_id, GeoFeature.layer_id == layer_name
             )
             .first()
         )
+        if not feature:
+            raise ResourceNotFoundException(
+                f"Feature '{feature_id}' not found in layer '{layer_name}'."
+            )
+        return feature
 
     def update_geo_feature(
         self, feature_id: str, layer_name: str, feature_update: GeoFeatureUpdate
@@ -159,8 +180,6 @@ class DatabaseService:
         """Update a geospatial feature."""
         try:
             feature = self.get_geo_feature(feature_id, layer_name)
-            if not feature:
-                return None
 
             update_data = feature_update.model_dump(exclude_unset=True)
             for key, value in update_data.items():
@@ -170,22 +189,24 @@ class DatabaseService:
             self.db.commit()
             self.db.refresh(feature)
             return feature
+        except (ResourceNotFoundException, DatabaseException):
+            raise
         except Exception as e:
             logger.error(f"Failed to update geo feature {feature_id}: {e}")
             self.db.rollback()
-            raise
+            raise DatabaseException(f"Failed to update geo feature: {e}")
 
     def delete_geo_feature(self, feature_id: str, layer_name: str) -> bool:
         """Delete a geospatial feature."""
         try:
             feature = self.get_geo_feature(feature_id, layer_name)
-            if not feature:
-                return False
 
             self.db.delete(feature)
             self.db.commit()
             return True
+        except (ResourceNotFoundException, DatabaseException):
+            raise
         except Exception as e:
             logger.error(f"Failed to delete geo feature {feature_id}: {e}")
             self.db.rollback()
-            raise
+            raise DatabaseException(f"Failed to delete geo feature: {e}")

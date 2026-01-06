@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.core.exceptions import GeoServerException
 from app.schemas.geospatial import LayerPublishRequest
 from app.services.geoserver_service import GeoServerService
 
@@ -52,6 +53,22 @@ class TestGeoServerService:
         mock_request.return_value = mock_response
         result = service.create_workspace("existing_workspace")
         assert result is True
+
+    @patch("app.services.geoserver_service.requests.request")
+    def test_create_workspace_failure(self, mock_request, service):
+        import requests
+
+        # Simulate non-404 error
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "Error"
+        )
+
+        mock_request.side_effect = mock_response.raise_for_status.side_effect
+
+        with pytest.raises(GeoServerException):
+            service.create_workspace("fail_workspace")
 
     @patch("app.services.geoserver_service.requests.request")
     def test_publish_layer(self, mock_request, service):
@@ -147,30 +164,29 @@ class TestGeoServerService:
         assert len(layers) == 2
 
     @patch("app.services.geoserver_service.requests.request")
+    def test_get_layers_failure(self, mock_request, service):
+        mock_request.side_effect = Exception("Conn Error")
+
+        with pytest.raises(GeoServerException):
+            service.get_layers("ws")
+
+    @patch("app.services.geoserver_service.requests.request")
     def test_create_datastore(self, mock_request, service):
         # 1. Check exists -> 404
         mock_check = MagicMock()
         mock_check.status_code = 404
-        mock_check.raise_for_status.side_effect = Exception(
-            "Not Found"
-        )  # Requests usually raises HTTPError but logic handles general check
 
         # 2. Create -> 201
         mock_create = MagicMock()
         mock_create.status_code = 201
 
-        # We need to simulate the check logic. If create_datastore checks first?
-        # Looking at implementation outline: standard create usually checks or just posts.
-        # Let's assume it posts and handles error or check.
-        # Actually in test_create_workspace it checks.
-
-        # Let's mock a direct success for simplicity if logic allows
-        mock_request.return_value.status_code = 201
+        mock_request.side_effect = [mock_check, mock_create]
 
         result = service.create_datastore(
             "new_store", connection_params={"host": "localhost"}
         )
         assert result is True
+        assert mock_request.call_count == 2
 
     @patch("app.services.geoserver_service.requests.request")
     def test_create_style(self, mock_request, service):

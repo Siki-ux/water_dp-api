@@ -18,6 +18,7 @@ class StationType(str, Enum):
     RESERVOIR = "reservoir"
     WELL = "well"
     SPRING = "spring"
+    UNKNOWN = "unknown"
 
 
 class StationStatus(str, Enum):
@@ -27,6 +28,7 @@ class StationStatus(str, Enum):
     INACTIVE = "inactive"
     MAINTENANCE = "maintenance"
     DECOMMISSIONED = "decommissioned"
+    UNKNOWN = "unknown"
 
 
 class ParameterType(str, Enum):
@@ -56,8 +58,12 @@ class WaterStationBase(BaseModel):
     station_id: str = Field(..., description="Unique station identifier")
     name: str = Field(..., description="Station name")
     description: Optional[str] = Field(None, description="Station description")
-    latitude: float = Field(..., ge=-90, le=90, description="Latitude coordinate")
-    longitude: float = Field(..., ge=-180, le=180, description="Longitude coordinate")
+    latitude: Optional[float] = Field(
+        None, ge=-90, le=90, description="Latitude coordinate"
+    )
+    longitude: Optional[float] = Field(
+        None, ge=-180, le=180, description="Longitude coordinate"
+    )
     elevation: Optional[float] = Field(
         None, description="Elevation above sea level (meters)"
     )

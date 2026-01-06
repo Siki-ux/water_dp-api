@@ -1,0 +1,104 @@
+"""
+Security module for handling JWT verification against Keycloak.
+"""
+
+import logging
+from typing import Any, Dict, Optional
+
+import httpx
+from fastapi import HTTPException, status
+from jose import JWTError, jwt
+
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+# Cache for JWKS (JSON Web Key Set)
+_jwks_cache: Optional[Dict[str, Any]] = None
+
+
+async def get_jwks() -> Dict[str, Any]:
+    """
+    Fetch JSON Web Key Set from Keycloak.
+    Simple caching strategy (global variable). In production, consider expirable cache.
+    """
+    global _jwks_cache
+    if _jwks_cache:
+        return _jwks_cache
+
+    try:
+        url = f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/certs"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, timeout=10.0)
+            response.raise_for_status()
+            _jwks_cache = response.json()
+            logger.info("Fetched JWKS from Keycloak")
+            return _jwks_cache
+    except Exception as e:
+        logger.error(f"Failed to fetch JWKS: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable",
+        )
+
+
+async def verify_token(token: str) -> Dict[str, Any]:
+    """
+    Verify JWT token signature and audience.
+    """
+    try:
+        # 1. Get Public Keys
+        jwks = await get_jwks()
+
+        # 2. Decode Header to find Key ID (kid)
+        unverified_header = jwt.get_unverified_header(token)
+        rsa_key = {}
+
+        for key in jwks["keys"]:
+            if key["kid"] == unverified_header["kid"]:
+                rsa_key = {
+                    "kty": key["kty"],
+                    "kid": key["kid"],
+                    "use": key["use"],
+                    "n": key["n"],
+                    "e": key["e"],
+                }
+                break
+
+        if not rsa_key:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token header",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # 3. Verify Token
+        payload = jwt.decode(
+            token,
+            rsa_key,
+            algorithms=["RS256"],
+            audience="account",  # Keycloak defaults usually verify against 'account' or specific client audience
+            issuer=f"{settings.keycloak_url}/realms/{settings.keycloak_realm}",
+            options={
+                # WARNING: Audience verification is disabled to support complex Keycloak configurations.
+                # This is a known risk acceptance. Ensure issuer and signature verification are strict.
+                "verify_aud": False
+            },
+        )
+
+        return payload
+
+    except JWTError as e:
+        logger.warning(f"JWT Verification failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except Exception as e:
+        logger.error(f"Authentication error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed",
+            headers={"WWW-Authenticate": "Bearer"},
+        )

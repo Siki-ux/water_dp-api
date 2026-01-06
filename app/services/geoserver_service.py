@@ -10,6 +10,7 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 from app.core.config import settings
+from app.core.exceptions import GeoServerException
 from app.schemas.geospatial import (
     GeoServerLayerInfo,
     LayerPublishRequest,
@@ -34,7 +35,9 @@ class GeoServerService:
         self.wfs_url = f"{self.base_url}/wfs"
         self.wcs_url = f"{self.base_url}/wcs"
 
-    def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
+    def _make_request(
+        self, method: str, endpoint: str, check_status: bool = True, **kwargs
+    ) -> requests.Response:
         """Make HTTP request to GeoServer."""
         endpoint = endpoint.lstrip("/")
         url = f"{self.rest_url}/{endpoint}"
@@ -44,11 +47,12 @@ class GeoServerService:
 
         try:
             response = requests.request(method, url, **kwargs)
-            response.raise_for_status()
+            if check_status:
+                response.raise_for_status()
             return response
         except requests.exceptions.RequestException as e:
             logger.error(f"GeoServer request failed: {e}")
-            raise
+            raise GeoServerException(f"GeoServer request failed: {e}")
 
     def test_connection(self) -> bool:
         """Test connection to GeoServer."""
@@ -69,11 +73,13 @@ class GeoServerService:
 
         try:
             # Check if workspace exists
-            self._make_request("GET", f"/workspaces/{workspace_name}.json")
-            logger.info(f"Workspace {workspace_name} already exists")
-            return True
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
+            resp = self._make_request(
+                "GET", f"/workspaces/{workspace_name}.json", check_status=False
+            )
+            if resp.status_code == 200:
+                logger.info(f"Workspace {workspace_name} already exists")
+                return True
+            elif resp.status_code == 404:
                 # Workspace doesn't exist, create it
                 workspace_data = {
                     "workspace": {"name": workspace_name, "isolated": False}
@@ -83,7 +89,10 @@ class GeoServerService:
                 logger.info(f"Created workspace: {workspace_name}")
                 return True
             else:
-                raise
+                resp.raise_for_status()
+                return False
+        except Exception as e:
+            raise GeoServerException(f"Failed to check/create workspace: {e}")
 
     def create_datastore(
         self,
@@ -94,13 +103,15 @@ class GeoServerService:
         """Create data store."""
         try:
             # Check if store exists
-            self._make_request(
-                "GET", f"/workspaces/{self.workspace}/datastores/{store_name}.json"
+            resp = self._make_request(
+                "GET",
+                f"/workspaces/{self.workspace}/datastores/{store_name}.json",
+                check_status=False,
             )
-            logger.info(f"Data store {store_name} already exists")
-            return True
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
+            if resp.status_code == 200:
+                logger.info(f"Data store {store_name} already exists")
+                return True
+            elif resp.status_code == 404:
                 # Store doesn't exist, create it
                 store_data = {
                     "dataStore": {
@@ -119,7 +130,10 @@ class GeoServerService:
                 logger.info(f"Created data store: {store_name}")
                 return True
             else:
-                raise
+                resp.raise_for_status()
+                return False
+        except Exception as e:
+            raise GeoServerException(f"Failed to check/create datastore: {e}")
 
     def publish_layer(self, layer_request: LayerPublishRequest) -> bool:
         """Publish a layer to GeoServer."""
@@ -158,7 +172,7 @@ class GeoServerService:
 
         except Exception as e:
             logger.error(f"Failed to publish layer {layer_request.layer_name}: {e}")
-            raise
+            raise GeoServerException(f"Failed to publish layer: {e}")
 
     def publish_sql_view(
         self,
@@ -174,15 +188,16 @@ class GeoServerService:
 
         try:
             # Check if layer exists
-            try:
-                self._make_request(
-                    "GET", f"/workspaces/{workspace}/layers/{layer_name}.json"
-                )
+            resp = self._make_request(
+                "GET",
+                f"/workspaces/{workspace}/layers/{layer_name}.json",
+                check_status=False,
+            )
+            if resp.status_code == 200:
                 logger.info(f"Layer {layer_name} already exists. Skipping.")
                 return True
-            except requests.exceptions.HTTPError as e:
-                if e.response.status_code != 404:
-                    raise
+            elif resp.status_code != 404:
+                resp.raise_for_status()
 
             feature_type_config = {
                 "featureType": {
@@ -226,7 +241,7 @@ class GeoServerService:
 
         except Exception as e:
             logger.error(f"Failed to publish SQL View layer {layer_name}: {e}")
-            raise
+            raise GeoServerException(f"Failed to publish SQL View: {e}")
 
     def unpublish_layer(self, layer_name: str, workspace: str = None) -> bool:
         """Unpublish a layer from GeoServer."""
@@ -240,7 +255,7 @@ class GeoServerService:
             return True
         except Exception as e:
             logger.error(f"Failed to unpublish layer {layer_name}: {e}")
-            raise
+            raise GeoServerException(f"Failed to unpublish layer: {e}")
 
     def set_layer_style(
         self, layer_name: str, style_name: str, workspace: str = None
@@ -323,7 +338,7 @@ class GeoServerService:
             )
         except Exception as e:
             logger.error(f"Failed to get layer info for {layer_name}: {e}")
-            return None
+            raise GeoServerException(f"Failed to get layer info: {e}")
 
     def get_layer_capabilities(
         self, layer_name: str, workspace: str = None
@@ -385,7 +400,7 @@ class GeoServerService:
             return layers
         except Exception as e:
             logger.error(f"Failed to get layers for workspace {workspace}: {e}")
-            return []
+            raise GeoServerException(f"Failed to get layers: {e}")
 
     def generate_wms_url(
         self,

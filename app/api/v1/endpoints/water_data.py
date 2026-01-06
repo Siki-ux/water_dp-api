@@ -8,6 +8,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user, has_role
 from app.core.database import get_db
 from app.schemas.water_data import (
     BulkDataPointCreate,
@@ -29,14 +30,14 @@ router = APIRouter()
 
 
 @router.post("/stations", response_model=WaterStationResponse, status_code=201)
-async def create_station(station: WaterStationCreate, db: Session = Depends(get_db)):
+async def create_station(
+    station: WaterStationCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """Create a new water station."""
-    try:
-        service = TimeSeriesService(db)
-        return service.create_station(station)
-    except Exception as e:
-        logger.error(f"Failed to create station: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+    service = TimeSeriesService(db)
+    return service.create_station(station)
 
 
 @router.get("/stations", response_model=StationListResponse)
@@ -49,110 +50,74 @@ async def get_stations(
     db: Session = Depends(get_db),
 ):
     """Get water stations with optional filtering."""
-    try:
-        service = TimeSeriesService(db)
-        stations = service.get_stations(
-            skip=skip, limit=limit, station_type=station_type, status=status
-        )
+    service = TimeSeriesService(db)
+    stations = service.get_stations(
+        skip=skip, limit=limit, station_type=station_type, status=status
+    )
 
-        total = len(
-            stations
-        )  # This is a simplified count, in production you'd want a separate count query
+    total = len(
+        stations
+    )  # This is a simplified count, in production you'd want a separate count query
 
-        return StationListResponse(
-            stations=stations, total=total, skip=skip, limit=limit
-        )
-    except Exception as e:
-        logger.error(f"Failed to get stations: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return StationListResponse(stations=stations, total=total, skip=skip, limit=limit)
 
 
 @router.get("/stations/{station_id}", response_model=WaterStationResponse)
 async def get_station(station_id: str, db: Session = Depends(get_db)):
     """Get a specific water station."""
-    try:
-        service = TimeSeriesService(db)
-        station = service.get_station(station_id)
-        if not station:
-            raise HTTPException(status_code=404, detail="Station not found")
-        return station
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get station {station_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    service = TimeSeriesService(db)
+    return service.get_station(station_id)
 
 
 @router.put("/stations/{station_id}", response_model=WaterStationResponse)
 async def update_station(
-    station_id: str, station_update: WaterStationUpdate, db: Session = Depends(get_db)
+    station_id: str,
+    station_update: WaterStationUpdate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Update a water station."""
-    try:
-        service = TimeSeriesService(db)
-
-        update_data = station_update.model_dump(exclude_unset=True)
-
-        station = service.update_station(station_id, update_data)
-        if not station:
-            raise HTTPException(status_code=404, detail="Station not found")
-        return station
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to update station {station_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    service = TimeSeriesService(db)
+    update_data = station_update.model_dump(exclude_unset=True)
+    return service.update_station(station_id, update_data)
 
 
-@router.delete("/stations/{station_id}", status_code=204)
+@router.delete(
+    "/stations/{station_id}", status_code=204, dependencies=[Depends(has_role("admin"))]
+)
 async def delete_station(station_id: str, db: Session = Depends(get_db)):
     """Delete a water station."""
-    try:
-        service = TimeSeriesService(db)
-        success = service.delete_station(station_id)
-        if not success:
-            raise HTTPException(status_code=404, detail="Station not found")
-
-        return {"message": "Station deleted successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to delete station {station_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    service = TimeSeriesService(db)
+    service.delete_station(station_id)
+    return {"message": "Station deleted successfully"}
 
 
 @router.post("/data-points", response_model=WaterDataPointResponse, status_code=201)
 async def create_data_point(
-    data_point: WaterDataPointCreate, db: Session = Depends(get_db)
+    data_point: WaterDataPointCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Create a new water data point."""
-    try:
-        service = TimeSeriesService(db)
-        return service.create_data_point(data_point)
-    except Exception as e:
-        logger.error(f"Failed to create data point: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+    service = TimeSeriesService(db)
+    return service.create_data_point(data_point)
 
 
 @router.post(
     "/data-points/bulk", response_model=List[WaterDataPointResponse], status_code=201
 )
 async def create_bulk_data_points(
-    bulk_data: BulkDataPointCreate, db: Session = Depends(get_db)
+    bulk_data: BulkDataPointCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Create multiple water data points."""
-    try:
-        service = TimeSeriesService(db)
-        created_points = []
-
-        for data_point in bulk_data.data_points:
-            point = service.create_data_point(data_point)
-            created_points.append(point)
-
-        return created_points
-    except Exception as e:
-        logger.error(f"Failed to create bulk data points: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+    service = TimeSeriesService(db)
+    created_points = []
+    for data_point in bulk_data.data_points:
+        point = service.create_data_point(data_point)
+        created_points.append(point)
+    return created_points
 
 
 @router.get("/data-points", response_model=DataPointListResponse)
@@ -223,9 +188,6 @@ async def get_data_points(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid datetime format: {e}")
-    except Exception as e:
-        logger.error(f"Failed to get data points: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/data-points/latest", response_model=List[WaterDataPointResponse])
@@ -235,13 +197,9 @@ async def get_latest_data_points(
     db: Session = Depends(get_db),
 ):
     """Get latest data points for a station."""
-    try:
-        service = TimeSeriesService(db)
-        data_points = service.get_latest_data(station_id, parameter)
-        return data_points
-    except Exception as e:
-        logger.error(f"Failed to get latest data points: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    service = TimeSeriesService(db)
+    data_points = service.get_latest_data(station_id, parameter)
+    return data_points
 
 
 @router.get("/stations/{station_id}/statistics", response_model=StationStatistics)
@@ -274,7 +232,9 @@ async def get_station_statistics(
 
 @router.post("/quality", response_model=WaterQualityResponse, status_code=201)
 async def create_quality_data(
-    quality_data: WaterQualityCreate, db: Session = Depends(get_db)
+    quality_data: WaterQualityCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Create water quality data."""
     try:

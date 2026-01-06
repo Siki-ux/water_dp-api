@@ -1,5 +1,6 @@
 import pytest
 
+from app.core.exceptions import DatabaseException, ResourceNotFoundException
 from app.models.geospatial import GeoFeature, GeoLayer
 from app.schemas.geospatial import (
     GeoFeatureCreate,
@@ -31,6 +32,24 @@ class TestDatabaseService:
         mock_db_session.add.assert_called_once()
         assert result.layer_name == "rivers"
 
+    def test_create_geo_layer_failure(self, service, mock_db_session):
+        layer_data = GeoLayerCreate(
+            layer_name="fail_layer",
+            title="Fail",
+            store_name="water_store",
+            workspace="water",
+            layer_type="vector",
+            geometry_type="line",
+            srid="EPSG:4326",
+        )
+        # Simulate DB Error
+        mock_db_session.add.side_effect = Exception("DB Error")
+
+        with pytest.raises(DatabaseException):
+            service.create_geo_layer(layer_data)
+
+        mock_db_session.rollback.assert_called_once()
+
     def test_get_geo_layers(self, service, mock_db_session):
         mock_query = mock_db_session.query.return_value
         mock_query.filter.return_value = mock_query
@@ -44,6 +63,11 @@ class TestDatabaseService:
         )
         result = service.get_geo_layer("rivers")
         assert result.layer_name == "rivers"
+
+    def test_get_geo_layer_not_found(self, service, mock_db_session):
+        mock_db_session.query.return_value.filter.return_value.first.return_value = None
+        with pytest.raises(ResourceNotFoundException):
+            service.get_geo_layer("missing_layer")
 
     def test_update_geo_layer(self, service, mock_db_session):
         mock_layer = GeoLayer(layer_name="rivers", description="Old Desc")
@@ -103,6 +127,11 @@ class TestDatabaseService:
 
         result = service.get_geo_feature("F1", "rivers")
         assert result.feature_id == "F1"
+
+    def test_get_geo_feature_not_found(self, service, mock_db_session):
+        mock_db_session.query.return_value.filter.return_value.first.return_value = None
+        with pytest.raises(ResourceNotFoundException):
+            service.get_geo_feature("F_MISSING", "rivers")
 
     def test_update_geo_feature(self, service, mock_db_session):
         mock_feature = GeoFeature(feature_id="F1", layer_id="rivers", properties={})

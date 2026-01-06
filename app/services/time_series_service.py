@@ -11,6 +11,10 @@ import pandas as pd
 import requests
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import (
+    ResourceNotFoundException,
+    TimeSeriesException,
+)
 from app.schemas.time_series import (
     AggregatedDataPoint,
     DataType,
@@ -88,7 +92,7 @@ class TimeSeriesService:
             "latitude": lat,
             "longitude": lon,
             "elevation": props.get("elevation"),
-            "station_type": props.get("type", "unknown"),
+            "station_type": props.get("type", props.get("station_type", "unknown")),
             "status": props.get("status", "unknown"),
             "organization": props.get("organization"),
             "properties": props,
@@ -98,74 +102,71 @@ class TimeSeriesService:
 
     # --- CRUD for Stations (Things) ---
     def create_station(self, station_data) -> Dict:
-        # Create Thing
+        """
+        Create a new water station (Thing) in FROST.
+        Creates Thing and Location in one atomic request to avoid $ref issues.
+        """
+        # Prepare Locations list (GeoJSON Point)
+        locations = []
+        if station_data.latitude is not None and station_data.longitude is not None:
+            locations.append(
+                {
+                    "name": f"Location for {station_data.name}",
+                    "description": f"Geo-location coordinates for station {station_data.name}",
+                    "encodingType": "application/vnd.geo+json",
+                    "location": {
+                        "type": "Point",
+                        "coordinates": [
+                            float(station_data.longitude),
+                            float(station_data.latitude),
+                        ],
+                    },
+                }
+            )
+
+        # Prepare Thing payload
         thing_payload = {
             "name": station_data.name,
             "description": station_data.description or "Water Station",
             "properties": {
                 "station_id": station_data.station_id,
-                "station_type": station_data.station_type,
-                "status": station_data.status,
+                "station_type": getattr(
+                    station_data.station_type, "value", str(station_data.station_type)
+                ),
+                "status": getattr(
+                    station_data.status, "value", str(station_data.status)
+                ),
                 "organization": station_data.organization,
                 **(station_data.properties or {}),
             },
+            "Locations": locations,
         }
 
         url = f"{self._get_frost_url()}/Things"
         try:
             resp = requests.post(url, json=thing_payload, timeout=self._get_timeout())
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                logger.error(
+                    f"FROST Station creation failed: {resp.status_code} - {resp.text}"
+                )
+                resp.raise_for_status()
+
             thing_loc = resp.headers["Location"]
             thing_id = thing_loc.split("(")[1].split(")")[0]
 
-            # Create Location
-            if station_data.latitude and station_data.longitude:
-                loc_payload = {
-                    "name": f"Loc {station_data.name}",
-                    "encodingType": "application/vnd.geo+json",
-                    "location": {
-                        "type": "Point",
-                        "coordinates": [station_data.longitude, station_data.latitude],
-                    },
-                }
-                loc_resp = requests.post(
-                    f"{self._get_frost_url()}/Locations",
-                    json=loc_payload,
-                    timeout=self._get_timeout(),
-                )
-                loc_resp.raise_for_status()
-                loc_id = loc_resp.headers["Location"].split("(")[1].split(")")[0]
-                # Link
-                link_resp = requests.post(
-                    f"{self._get_frost_url()}/Things({thing_id})/Locations/$ref",
-                    json={"@iot.id": loc_id},
-                    timeout=self._get_timeout(),
-                )
-                link_resp.raise_for_status()
-
+            # Return mapped object
             return self._map_thing_to_station(
                 {
                     "@iot.id": thing_id,
                     **thing_payload,
-                    "Locations": (
-                        [
-                            {
-                                "location": {
-                                    "coordinates": [
-                                        station_data.longitude,
-                                        station_data.latitude,
-                                    ]
-                                }
-                            }
-                        ]
-                        if station_data.latitude
-                        else []
-                    ),
                 }
             )
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to create station in FROST: {e}")
-            raise
+            error_msg = str(e)
+            if hasattr(e, "response") and e.response is not None:
+                error_msg = f"{e.response.status_code}: {e.response.text}"
+            logger.error(f"Failed to create station in FROST: {error_msg}")
+            raise TimeSeriesException(f"Failed to create station: {error_msg}")
 
     def get_stations(self, skip: int = 0, limit: int = 100, **filters) -> List[Dict]:
         url = f"{self._get_frost_url()}/Things"
@@ -173,17 +174,19 @@ class TimeSeriesService:
         try:
             resp = requests.get(url, params=params, timeout=self._get_timeout())
             resp.raise_for_status()
+
             try:
                 things = resp.json().get("value", [])
             except (ValueError, requests.exceptions.JSONDecodeError) as json_err:
                 logger.error(
                     f"Failed to parse JSON response from FROST: {json_err}. URL: {url}"
                 )
-                return []
+                raise TimeSeriesException("Received invalid JSON from FROST server.")
+
             return [self._map_thing_to_station(t) for t in things]
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to fetch stations from FROST: {e}. URL: {url}")
-            return []
+            raise TimeSeriesException(f"Failed to fetch stations: {e}")
 
     def get_station(self, station_id: str) -> Optional[Dict]:
         url = f"{self._get_frost_url()}/Things"
@@ -201,14 +204,19 @@ class TimeSeriesService:
                 logger.error(
                     f"Failed to parse JSON response from FROST: {json_err}. URL: {url}"
                 )
-                return None
+                raise TimeSeriesException("Received invalid JSON from FROST server.")
+
             if val:
                 return self._map_thing_to_station(val[0])
+
+            # If we get here, station was not found
+            raise ResourceNotFoundException(f"Station '{station_id}' not found.")
+
         except requests.exceptions.RequestException as e:
             logger.error(
                 f"Failed to fetch station '{station_id}' from FROST: {e}. URL: {url}"
             )
-        return None
+            raise TimeSeriesException(f"Failed to fetch station details: {e}")
 
     def get_datastreams_for_station(
         self, station_id: int, parameter: Optional[str] = None
@@ -230,7 +238,7 @@ class TimeSeriesService:
             return resp.json().get("value", [])
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to fetch datastreams for station {station_id}: {e}")
-            return []
+            raise TimeSeriesException(f"Failed to fetch datastreams: {e}")
 
     def update_station(self, station_id: str, data: Dict) -> Optional[Dict]:
         # Not fully implemented for deep patch
@@ -254,7 +262,7 @@ class TimeSeriesService:
                 raise
             if not val:
                 # Station not found
-                return False
+                raise ResourceNotFoundException(f"Station '{station_id}' not found.")
 
             # Assuming the first match is the correct one
             thing = val[0]
@@ -366,12 +374,12 @@ class TimeSeriesService:
             return results
         except requests.exceptions.RequestException as e:
             logger.error(
-                f"Request failure fetching metadata from FROST: {e} " f"URL: {url}"
+                f"Request failure fetching metadata from FROST: {e} URL: {url}"
             )
-            raise
+            raise TimeSeriesException(f"Failed to fetch metadata: {e}")
         except Exception as e:
             logger.error(f"Unexpected error fetching metadata from FROST: {e}")
-            raise
+            raise TimeSeriesException(f"Unexpected error: {e}")
 
     def get_time_series_metadata_by_id(
         self, series_id: str
@@ -396,7 +404,7 @@ class TimeSeriesService:
                 )
                 return None
             if not val:
-                return None
+                raise ResourceNotFoundException(f"Time series '{series_id}' not found.")
 
             item = val[0]
             thing = item.get("Thing", {})
@@ -438,12 +446,16 @@ class TimeSeriesService:
             logger.error(
                 f"Request failure fetching metadata by ID '{series_id}' from FROST: {e}"
             )
+            raise TimeSeriesException(
+                f"Failed to fetch metadata for '{series_id}': {e}"
+            )
+        except ResourceNotFoundException:
             raise
         except Exception as e:
             logger.error(
                 f"Unexpected error fetching metadata by ID '{series_id}' from FROST: {e}"
             )
-            raise
+            raise TimeSeriesException(f"Unexpected error for '{series_id}': {e}")
 
     # --- Time Series Data ---
 
@@ -530,7 +542,7 @@ class TimeSeriesService:
 
         except Exception as e:
             logger.error(f"Failed to create data point: {e}")
-            raise
+            raise TimeSeriesException(f"Failed to create data point: {e}")
 
     def get_latest_data(
         self, station_id: int, parameter: Optional[str] = None
@@ -613,7 +625,9 @@ class TimeSeriesService:
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to get datastreams for station {station_id}: {e}")
-            return []
+            raise TimeSeriesException(
+                f"Failed to get latest data for station {station_id}: {e}"
+            )
 
     def get_time_series_data(self, query: TimeSeriesQuery) -> List[Any]:
         """Get time series data with filtering from FROST."""
@@ -714,7 +728,7 @@ class TimeSeriesService:
 
         except Exception as e:
             logger.error(f"Failed to get time series data from FROST: {e}")
-            raise
+            raise TimeSeriesException(f"Failed to get time series data: {e}")
 
     def aggregate_time_series(
         self, aggregation: TimeSeriesAggregation
@@ -792,7 +806,7 @@ class TimeSeriesService:
             )
         except Exception as e:
             logger.error(f"Failed to aggregate time series: {e}")
-            raise
+            raise TimeSeriesException(f"Failed to aggregate time series: {e}")
 
     def interpolate_time_series(self, request: InterpolationRequest) -> List[Any]:
         # Fetch data first

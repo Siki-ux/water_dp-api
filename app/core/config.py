@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(
         default=30, alias="ACCESS_TOKEN_EXPIRE_MINUTES"
     )
+    keycloak_url: str = Field(default="http://localhost:8081", alias="KEYCLOAK_URL")
+    keycloak_realm: str = Field(default="timeio", alias="KEYCLOAK_REALM")
+    keycloak_client_id: str = Field(default="timeIO-client", alias="KEYCLOAK_CLIENT_ID")
 
     # Monitoring
     sentry_dsn: Optional[str] = Field(default=None, alias="SENTRY_DSN")
