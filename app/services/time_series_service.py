@@ -11,6 +11,10 @@ import pandas as pd
 import requests
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import (
+    ResourceNotFoundException,
+    TimeSeriesException,
+)
 from app.schemas.time_series import (
     AggregatedDataPoint,
     DataType,
@@ -165,7 +169,9 @@ class TimeSeriesService:
             )
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to create station in FROST: {e}")
-            raise
+            raise TimeSeriesException(
+                f"Failed to create station: {e}", details={"original_error": str(e)}
+            )
 
     def get_stations(self, skip: int = 0, limit: int = 100, **filters) -> List[Dict]:
         url = f"{self._get_frost_url()}/Things"
@@ -173,17 +179,23 @@ class TimeSeriesService:
         try:
             resp = requests.get(url, params=params, timeout=self._get_timeout())
             resp.raise_for_status()
+            if (
+                not resp.ok
+            ):  # Check for non-200 responses if raise_for_status didn't catch it logic (though raise_for_status should)
+                pass
+
             try:
                 things = resp.json().get("value", [])
             except (ValueError, requests.exceptions.JSONDecodeError) as json_err:
                 logger.error(
                     f"Failed to parse JSON response from FROST: {json_err}. URL: {url}"
                 )
-                return []
+                raise TimeSeriesException("Received invalid JSON from FROST server.")
+
             return [self._map_thing_to_station(t) for t in things]
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to fetch stations from FROST: {e}. URL: {url}")
-            return []
+            raise TimeSeriesException(f"Failed to fetch stations: {e}")
 
     def get_station(self, station_id: str) -> Optional[Dict]:
         url = f"{self._get_frost_url()}/Things"
@@ -201,14 +213,19 @@ class TimeSeriesService:
                 logger.error(
                     f"Failed to parse JSON response from FROST: {json_err}. URL: {url}"
                 )
-                return None
+                raise TimeSeriesException("Received invalid JSON from FROST server.")
+
             if val:
                 return self._map_thing_to_station(val[0])
+
+            # If we get here, station was not found
+            raise ResourceNotFoundException(f"Station '{station_id}' not found.")
+
         except requests.exceptions.RequestException as e:
             logger.error(
                 f"Failed to fetch station '{station_id}' from FROST: {e}. URL: {url}"
             )
-        return None
+            raise TimeSeriesException(f"Failed to fetch station details: {e}")
 
     def get_datastreams_for_station(
         self, station_id: int, parameter: Optional[str] = None
@@ -230,7 +247,7 @@ class TimeSeriesService:
             return resp.json().get("value", [])
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to fetch datastreams for station {station_id}: {e}")
-            return []
+            raise TimeSeriesException(f"Failed to fetch datastreams: {e}")
 
     def update_station(self, station_id: str, data: Dict) -> Optional[Dict]:
         # Not fully implemented for deep patch
@@ -254,7 +271,7 @@ class TimeSeriesService:
                 raise
             if not val:
                 # Station not found
-                return False
+                raise ResourceNotFoundException(f"Station '{station_id}' not found.")
 
             # Assuming the first match is the correct one
             thing = val[0]
@@ -366,12 +383,12 @@ class TimeSeriesService:
             return results
         except requests.exceptions.RequestException as e:
             logger.error(
-                f"Request failure fetching metadata from FROST: {e} " f"URL: {url}"
+                f"Request failure fetching metadata from FROST: {e} URL: {url}"
             )
-            raise
+            raise TimeSeriesException(f"Failed to fetch metadata: {e}")
         except Exception as e:
             logger.error(f"Unexpected error fetching metadata from FROST: {e}")
-            raise
+            raise TimeSeriesException(f"Unexpected error: {e}")
 
     def get_time_series_metadata_by_id(
         self, series_id: str
@@ -396,7 +413,7 @@ class TimeSeriesService:
                 )
                 return None
             if not val:
-                return None
+                raise ResourceNotFoundException(f"Time series '{series_id}' not found.")
 
             item = val[0]
             thing = item.get("Thing", {})
@@ -438,12 +455,14 @@ class TimeSeriesService:
             logger.error(
                 f"Request failure fetching metadata by ID '{series_id}' from FROST: {e}"
             )
-            raise
+            raise TimeSeriesException(
+                f"Failed to fetch metadata for '{series_id}': {e}"
+            )
         except Exception as e:
             logger.error(
                 f"Unexpected error fetching metadata by ID '{series_id}' from FROST: {e}"
             )
-            raise
+            raise TimeSeriesException(f"Unexpected error for '{series_id}': {e}")
 
     # --- Time Series Data ---
 
@@ -530,7 +549,7 @@ class TimeSeriesService:
 
         except Exception as e:
             logger.error(f"Failed to create data point: {e}")
-            raise
+            raise TimeSeriesException(f"Failed to create data point: {e}")
 
     def get_latest_data(
         self, station_id: int, parameter: Optional[str] = None
@@ -613,7 +632,9 @@ class TimeSeriesService:
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to get datastreams for station {station_id}: {e}")
-            return []
+            raise TimeSeriesException(
+                f"Failed to get latest data for station {station_id}: {e}"
+            )
 
     def get_time_series_data(self, query: TimeSeriesQuery) -> List[Any]:
         """Get time series data with filtering from FROST."""
@@ -714,7 +735,7 @@ class TimeSeriesService:
 
         except Exception as e:
             logger.error(f"Failed to get time series data from FROST: {e}")
-            raise
+            raise TimeSeriesException(f"Failed to get time series data: {e}")
 
     def aggregate_time_series(
         self, aggregation: TimeSeriesAggregation
@@ -792,7 +813,7 @@ class TimeSeriesService:
             )
         except Exception as e:
             logger.error(f"Failed to aggregate time series: {e}")
-            raise
+            raise TimeSeriesException(f"Failed to aggregate time series: {e}")
 
     def interpolate_time_series(self, request: InterpolationRequest) -> List[Any]:
         # Fetch data first

@@ -1,0 +1,114 @@
+from unittest.mock import patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.core.database import get_db
+from app.core.exceptions import ResourceNotFoundException, TimeSeriesException
+from app.main import app
+
+
+@pytest.fixture
+def client(mock_db_session):
+    def override_get_db():
+        try:
+            yield mock_db_session
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+def test_create_station_success(client):
+    from datetime import datetime
+
+    mock_station = {
+        "id": 1,
+        "name": "New Station",
+        "station_id": "ST_N",
+        "latitude": 10.0,
+        "longitude": 20.0,
+        "station_type": "river",
+        "status": "active",
+        "organization": "Org",
+        "created_at": datetime.now(),
+        "updated_at": datetime.now(),
+    }
+    with patch("app.api.v1.endpoints.water_data.TimeSeriesService") as MockService:
+        MockService.return_value.create_station.return_value = mock_station
+
+        response = client.post(
+            "/api/v1/water-data/stations",
+            json={
+                "name": "New Station",
+                "station_id": "ST_N",
+                "latitude": 10.0,
+                "longitude": 20.0,
+                "station_type": "river",
+                "status": "active",
+                "organization": "Org",
+            },
+        )
+        assert response.status_code == 201
+        assert response.json()["name"] == "New Station"
+
+
+def test_get_stations_success(client):
+    with patch("app.api.v1.endpoints.water_data.TimeSeriesService") as MockService:
+        MockService.return_value.get_stations.return_value = []
+
+        response = client.get("/api/v1/water-data/stations")
+        assert response.status_code == 200
+        assert response.json()["total"] == 0
+
+
+def test_get_station_success(client):
+    from datetime import datetime
+
+    mock_station = {
+        "id": 1,
+        "name": "S1",
+        "station_id": "ST_1",
+        "latitude": 0,
+        "longitude": 0,
+        "station_type": "river",
+        "created_at": datetime.now(),
+        "updated_at": datetime.now(),
+    }
+    with patch("app.api.v1.endpoints.water_data.TimeSeriesService") as MockService:
+        MockService.return_value.get_station.return_value = mock_station
+
+        response = client.get("/api/v1/water-data/stations/ST_1")
+        assert response.status_code == 200
+        assert response.json()["station_id"] == "ST_1"
+
+
+def test_get_station_not_found(client):
+    with patch("app.api.v1.endpoints.water_data.TimeSeriesService") as MockService:
+        MockService.return_value.get_station.side_effect = ResourceNotFoundException(
+            "Not found"
+        )
+
+        response = client.get("/api/v1/water-data/stations/ST_MISSING")
+        assert response.status_code == 404
+
+
+def test_create_data_point_error(client):
+    # Use valid enum for parameter: water_level
+    data = {
+        "station_id": 1,
+        "timestamp": "2023-01-01T00:00:00Z",
+        "value": 10.0,
+        "parameter": "water_level",
+        "unit": "m",
+    }
+    with patch("app.api.v1.endpoints.water_data.TimeSeriesService") as MockService:
+        MockService.return_value.create_data_point.side_effect = TimeSeriesException(
+            "Fail"
+        )
+
+        response = client.post("/api/v1/water-data/data-points", json=data)
+        assert response.status_code == 500

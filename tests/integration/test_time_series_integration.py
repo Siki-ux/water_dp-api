@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import requests
@@ -23,12 +23,36 @@ def seeded_series_id():
         series_list = data.get("series", [])
 
         if series_list:
-            # Prefer series with LEVEL in name (seeded data)
+            # Check candidates for actual data
             for s in series_list:
-                if "LEVEL" in s.get("series_id", "") or "LEVEL" in s.get("name", ""):
-                    return s["series_id"]
-            # Fallback to first available
-            return series_list[0]["series_id"]
+                s_id = s.get("series_id")
+                # Try fetching 1 data point to verify it has data
+                # Use a wide window to be safe
+                end_t = datetime.now(timezone.utc)
+                start_t = end_t - timedelta(days=365)
+
+                check_params = {
+                    "series_id": s_id,
+                    "start_time": start_t.isoformat(),
+                    "end_time": end_t.isoformat(),
+                    "limit": 1,
+                }
+
+                check_resp = requests.get(
+                    f"{BASE_URL}/time-series/data", params=check_params
+                )
+                if check_resp.status_code == 200:
+                    pts = check_resp.json().get("data_points", [])
+                    if len(pts) > 0:
+                        logger.info(f"Found seeded series with data: {s_id}")
+                        return s_id
+
+            # Fallback (if no data found in any series)
+            logger.warning(
+                "No series with data found. Returning first available series, but tests may fail."
+            )
+            if series_list:
+                return series_list[0]["series_id"]
 
         # If no series found in metadata, we cannot proceed with tests requiring them
         logger.warning(
@@ -65,9 +89,11 @@ def test_get_time_series_metadata_by_id(seeded_series_id):
 @pytest.mark.integration
 def test_get_time_series_data_points(seeded_series_id):
     """Test retrieving data points for a series."""
-    # Get last 24 hours to ensure we hit seeded data (seeded for last 24h)
-    end_time = datetime.utcnow()
-    start_time = end_time - timedelta(days=2)
+    # Ignore metadata timestamps as they might be unreliable/lagging in FROST
+    # Seeded data is generated for the last 4 days.
+    # We query for the last 7 days to be safe.
+    end_time = datetime.now(timezone.utc)
+    start_time = end_time - timedelta(days=7)
 
     params = {
         "series_id": seeded_series_id,
@@ -94,8 +120,8 @@ def test_get_time_series_data_points(seeded_series_id):
 @pytest.mark.integration
 def test_time_series_statistics(seeded_series_id):
     """Test retrieving statistics."""
-    end_time = datetime.utcnow()
-    start_time = end_time - timedelta(days=2)
+    end_time = datetime.now(timezone.utc)
+    start_time = end_time - timedelta(days=7)
 
     params = {"start_time": start_time.isoformat(), "end_time": end_time.isoformat()}
 

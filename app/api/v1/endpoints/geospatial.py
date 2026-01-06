@@ -33,12 +33,8 @@ router = APIRouter()
 @router.post("/layers", response_model=GeoLayerResponse, status_code=201)
 async def create_geo_layer(layer: GeoLayerCreate, db: Session = Depends(get_db)):
     """Create a new geospatial layer."""
-    try:
-        db_service = DatabaseService(db)
-        return db_service.create_geo_layer(layer)
-    except Exception as e:
-        logger.error(f"Failed to create geo layer: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+    db_service = DatabaseService(db)
+    return db_service.create_geo_layer(layer)
 
 
 @router.get("/layers", response_model=LayerListResponse)
@@ -54,48 +50,31 @@ async def get_geo_layers(
     db: Session = Depends(get_db),
 ):
     """Get geospatial layers with filtering."""
-    try:
-        db_service = DatabaseService(db)
-        layers = db_service.get_geo_layers(workspace=workspace, layer_type=layer_type)
+    db_service = DatabaseService(db)
+    layers = db_service.get_geo_layers(workspace=workspace, layer_type=layer_type)
 
-        # Apply additional filters
-        if is_published is not None:
-            layers = [
-                layer
-                for layer in layers
-                if layer.is_published == str(is_published).lower()
-            ]
-        if is_public is not None:
-            layers = [
-                layer for layer in layers if layer.is_public == str(is_public).lower()
-            ]
+    # Apply additional filters
+    if is_published is not None:
+        layers = [
+            layer for layer in layers if layer.is_published == str(is_published).lower()
+        ]
+    if is_public is not None:
+        layers = [
+            layer for layer in layers if layer.is_public == str(is_public).lower()
+        ]
 
-        # Apply pagination
-        total = len(layers)
-        layers = layers[skip : skip + limit]
+    # Apply pagination
+    total = len(layers)
+    layers = layers[skip : skip + limit]
 
-        return LayerListResponse(layers=layers, total=total, skip=skip, limit=limit)
-    except Exception as e:
-        logger.error(f"Failed to get geo layers: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return LayerListResponse(layers=layers, total=total, skip=skip, limit=limit)
 
 
 @router.get("/layers/{layer_name}", response_model=GeoLayerResponse)
 async def get_geo_layer(layer_name: str, db: Session = Depends(get_db)):
     """Get a specific geospatial layer."""
-    try:
-        db_service = DatabaseService(db)
-        layer = db_service.get_geo_layer(layer_name)
-        if not layer:
-            raise HTTPException(
-                status_code=404, detail=f"Geo layer {layer_name} not found"
-            )
-        return layer
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get geo layer {layer_name}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    db_service = DatabaseService(db)
+    return db_service.get_geo_layer(layer_name)
 
 
 @router.put("/layers/{layer_name}", response_model=GeoLayerResponse)
@@ -103,47 +82,22 @@ async def update_geo_layer(
     layer_name: str, layer_update: GeoLayerUpdate, db: Session = Depends(get_db)
 ):
     """Update a geospatial layer."""
-    try:
-        db_service = DatabaseService(db)
-        layer = db_service.update_geo_layer(layer_name, layer_update)
-        if not layer:
-            raise HTTPException(
-                status_code=404, detail=f"Geo layer {layer_name} not found"
-            )
-        return layer
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to update geo layer {layer_name}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    db_service = DatabaseService(db)
+    return db_service.update_geo_layer(layer_name, layer_update)
 
 
 @router.delete("/layers/{layer_name}", status_code=204)
 async def delete_geo_layer(layer_name: str, db: Session = Depends(get_db)):
     """Delete a geospatial layer."""
-    try:
-        db_service = DatabaseService(db)
-        success = db_service.delete_geo_layer(layer_name)
-        if not success:
-            raise HTTPException(
-                status_code=404, detail=f"Geo layer {layer_name} not found"
-            )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to delete geo layer {layer_name}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    db_service = DatabaseService(db)
+    db_service.delete_geo_layer(layer_name)
 
 
 @router.post("/features", response_model=GeoFeatureResponse, status_code=201)
 async def create_geo_feature(feature: GeoFeatureCreate, db: Session = Depends(get_db)):
     """Create a new geospatial feature."""
-    try:
-        db_service = DatabaseService(db)
-        return db_service.create_geo_feature(feature)
-    except Exception as e:
-        logger.error(f"Failed to create geo feature: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+    db_service = DatabaseService(db)
+    return db_service.create_geo_feature(feature)
 
 
 @router.get("/features", response_model=FeatureListResponse)
@@ -159,27 +113,23 @@ async def get_geo_features(
     db: Session = Depends(get_db),
 ):
     """Get geospatial features with filtering."""
-    try:
-        db_service = DatabaseService(db)
-        features = db_service.get_geo_features(
-            layer_name=layer_name,
-            skip=skip,
-            limit=limit,
-            feature_type=feature_type,
-            is_active=is_active,
-            bbox=bbox,
-        )
+    db_service = DatabaseService(db)
+    features = db_service.get_geo_features(
+        layer_name=layer_name,
+        skip=skip,
+        limit=limit,
+        feature_type=feature_type,
+        is_active=is_active,
+        bbox=bbox,
+    )
 
-        return FeatureListResponse(
-            features=features,
-            total=len(features),  # Todo: implement count in service for pagination
-            layer_name=layer_name,
-            skip=skip,
-            limit=limit,
-        )
-    except Exception as e:
-        logger.error(f"Failed to get geo features: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return FeatureListResponse(
+        features=features,
+        total=len(features),  # Todo: implement count in service for pagination
+        layer_name=layer_name,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.get("/features/{feature_id}", response_model=GeoFeatureResponse)
@@ -189,20 +139,8 @@ async def get_geo_feature(
     db: Session = Depends(get_db),
 ):
     """Get a specific geospatial feature."""
-    try:
-        db_service = DatabaseService(db)
-        feature = db_service.get_geo_feature(feature_id, layer_name)
-        if not feature:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Geo feature {feature_id} not found in layer {layer_name}",
-            )
-        return feature
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get geo feature {feature_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    db_service = DatabaseService(db)
+    return db_service.get_geo_feature(feature_id, layer_name)
 
 
 @router.put("/features/{feature_id}", response_model=GeoFeatureResponse)
@@ -213,20 +151,8 @@ async def update_geo_feature(
     db: Session = Depends(get_db),
 ):
     """Update a geospatial feature."""
-    try:
-        db_service = DatabaseService(db)
-        feature = db_service.update_geo_feature(feature_id, layer_name, feature_update)
-        if not feature:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Geo feature {feature_id} not found in layer {layer_name}",
-            )
-        return feature
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to update geo feature {feature_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    db_service = DatabaseService(db)
+    return db_service.update_geo_feature(feature_id, layer_name, feature_update)
 
 
 @router.delete("/features/{feature_id}", status_code=204)
@@ -236,19 +162,8 @@ async def delete_geo_feature(
     db: Session = Depends(get_db),
 ):
     """Delete a geospatial feature."""
-    try:
-        db_service = DatabaseService(db)
-        success = db_service.delete_geo_feature(feature_id, layer_name)
-        if not success:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Geo feature {feature_id} not found in layer {layer_name}",
-            )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to delete geo feature {feature_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    db_service = DatabaseService(db)
+    db_service.delete_geo_feature(feature_id, layer_name)
 
 
 @router.post("/spatial-query", response_model=SpatialQueryResponse)
@@ -267,25 +182,19 @@ async def publish_layer_to_geoserver(
     request: LayerPublishRequest, db: Session = Depends(get_db)
 ):
     """Publish a layer to GeoServer."""
-    try:
-        geoserver_service = GeoServerService()
+    geoserver_service = GeoServerService()
 
-        if not geoserver_service.test_connection():
-            raise HTTPException(status_code=503, detail="Cannot connect to GeoServer")
+    if not geoserver_service.test_connection():
+        raise HTTPException(status_code=503, detail="Cannot connect to GeoServer")
 
-        geoserver_service.create_workspace(request.workspace)
+    geoserver_service.create_workspace(request.workspace)
 
-        success = geoserver_service.publish_layer(request)
+    success = geoserver_service.publish_layer(request)
 
-        if success:
-            return {"message": f"Layer {request.layer_name} published successfully"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to publish layer")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to publish layer to GeoServer: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    if success:
+        return {"message": f"Layer {request.layer_name} published successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to publish layer")
 
 
 @router.delete("/geoserver/unpublish", status_code=204)

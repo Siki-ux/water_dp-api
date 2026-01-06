@@ -51,43 +51,28 @@ async def get_time_series_metadata(
     db: Session = Depends(get_db),
 ):
     """Get time series metadata with filtering."""
-    try:
-        service = TimeSeriesService(db)
-        metadata_list = service.get_time_series_metadata(
-            skip=skip,
-            limit=limit,
-            parameter=parameter,
-            source_type=source_type,
-            station_id=station_id,
-        )
+    service = TimeSeriesService(db)
+    metadata_list = service.get_time_series_metadata(
+        skip=skip,
+        limit=limit,
+        parameter=parameter,
+        source_type=source_type,
+        station_id=station_id,
+    )
 
-        return TimeSeriesMetadataListResponse(
-            series=metadata_list,
-            total=len(metadata_list),  # Todo: implement count
-            skip=skip,
-            limit=limit,
-        )
-    except Exception as e:
-        logger.error(f"Failed to get time series metadata: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return TimeSeriesMetadataListResponse(
+        series=metadata_list,
+        total=len(metadata_list),  # Todo: implement count
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.get("/metadata/{series_id}", response_model=TimeSeriesMetadataResponse)
 async def get_time_series_metadata_by_id(series_id: str, db: Session = Depends(get_db)):
     """Get specific time series metadata."""
-    try:
-        service = TimeSeriesService(db)
-        metadata = service.get_time_series_metadata_by_id(series_id)
-        if not metadata:
-            raise HTTPException(
-                status_code=404, detail=f"Time series {series_id} not found"
-            )
-        return metadata
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get time series metadata {series_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    service = TimeSeriesService(db)
+    return service.get_time_series_metadata_by_id(series_id)
 
 
 @router.put("/metadata/{series_id}", response_model=TimeSeriesMetadataResponse)
@@ -161,9 +146,6 @@ async def get_time_series_data(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid datetime format: {e}")
-    except Exception as e:
-        logger.error(f"Failed to get time series data: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/aggregate", response_model=AggregatedTimeSeriesResponse)
@@ -171,25 +153,21 @@ async def aggregate_time_series(
     aggregation: TimeSeriesAggregation, db: Session = Depends(get_db)
 ):
     """Aggregate time series data."""
-    try:
-        ts_service = TimeSeriesService(db)
-        aggregated_points = ts_service.aggregate_time_series(aggregation)
+    ts_service = TimeSeriesService(db)
+    aggregated_points = ts_service.aggregate_time_series(aggregation)
 
-        return AggregatedTimeSeriesResponse(
-            series_id=aggregation.series_id,
-            aggregation_method=aggregation.aggregation_method,
-            aggregation_interval=aggregation.aggregation_interval,
-            time_range={"start": aggregation.start_time, "end": aggregation.end_time},
-            data_points=aggregated_points,
-            total_points=len(aggregated_points),
-            metadata={
-                "time_zone": aggregation.time_zone,
-                "include_metadata": aggregation.include_metadata,
-            },
-        )
-    except Exception as e:
-        logger.error(f"Failed to aggregate time series: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return AggregatedTimeSeriesResponse(
+        series_id=aggregation.series_id,
+        aggregation_method=aggregation.aggregation_method,
+        aggregation_interval=aggregation.aggregation_interval,
+        time_range={"start": aggregation.start_time, "end": aggregation.end_time},
+        data_points=aggregated_points,
+        total_points=len(aggregated_points),
+        metadata={
+            "time_zone": aggregation.time_zone,
+            "include_metadata": aggregation.include_metadata,
+        },
+    )
 
 
 @router.post("/interpolate", response_model=List[TimeSeriesDataResponse])
@@ -197,13 +175,9 @@ async def interpolate_time_series(
     request: InterpolationRequest, db: Session = Depends(get_db)
 ):
     """Interpolate missing values in time series."""
-    try:
-        ts_service = TimeSeriesService(db)
-        interpolated_points = ts_service.interpolate_time_series(request)
-        return interpolated_points
-    except Exception as e:
-        logger.error(f"Failed to interpolate time series: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    ts_service = TimeSeriesService(db)
+    interpolated_points = ts_service.interpolate_time_series(request)
+    return interpolated_points
 
 
 @router.get("/statistics/{series_id}", response_model=TimeSeriesStatistics)

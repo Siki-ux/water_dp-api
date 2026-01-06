@@ -265,13 +265,23 @@ poetry shell
 ### Running Tests
 The project includes a comprehensive test suite using `pytest`.
 
+> [!NOTE]
+> Database seeding is automatically disabled during unit tests (`conftest.py` fixture) for speed.
+
 ```bash
-# Run Unit Tests (Fast, Mocked) - Default
+# Run Unit Tests (Fast, Mocked) - Default (excludes integration)
 poetry run pytest
 
 # Run Integration Tests (Requires running stack)
-# Ensure docker-compose is up
-poetry run pytest tests/integration
+poetry run pytest -m integration
+
+# Run Specific Test Categories (Markers)
+poetry run pytest -m api
+poetry run pytest -m services
+poetry run pytest -m core
+
+# Run Coverage Tests
+poetry run pytest tests/test_services/test_time_series_service_coverage.py
 ```
 
 ### Code Structure

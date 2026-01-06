@@ -34,3 +34,34 @@ def mock_settings(monkeypatch):
     monkeypatch.setattr(settings, "geoserver_workspace", "test_workspace")
 
     return settings
+
+
+@pytest.fixture(autouse=True)
+def disable_seeding(monkeypatch):
+    """Disable automatic seeding during tests to prevent slow startup."""
+    monkeypatch.setattr(settings, "seeding", False)
+
+
+def pytest_configure(config):
+    """Register custom markers."""
+    config.addinivalue_line("markers", "api: Mark tests as API tests")
+    config.addinivalue_line("markers", "core: Mark tests as Core tests")
+    config.addinivalue_line("markers", "services: Mark tests as Service tests")
+    config.addinivalue_line("markers", "v1: Mark tests as V1 API tests")
+
+
+def pytest_collection_modifyitems(items):
+    """Add markers based on directory structure."""
+    for item in items:
+        # Get the test file path
+        path = str(item.fspath)
+
+        if "test_api" in path:
+            item.add_marker("api")
+            item.add_marker("v1")
+
+        if "test_core" in path:
+            item.add_marker("core")
+
+        if "test_services" in path:
+            item.add_marker("services")

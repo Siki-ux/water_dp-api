@@ -9,11 +9,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse
 
 from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.database import init_db
+from app.core.middleware import ErrorHandlingMiddleware
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper()),
@@ -94,6 +94,8 @@ app = FastAPI(
 )
 
 
+app.add_middleware(ErrorHandlingMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -124,16 +126,6 @@ async def log_requests(request: Request, call_next):
     logger.info(f"Response: {response.status_code} - {process_time:.3f}s")
 
     return response
-
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    """Global exception handler."""
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error", "type": "internal_error"},
-    )
 
 
 @app.get("/health", tags=["General"])
