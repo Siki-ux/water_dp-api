@@ -139,10 +139,7 @@ graph TB
     Sensors -->|HTTP| Frost
 ```
 
-```
-
 ## TimeIO Integration
-
 ### Why TimeIO?
 The project integrates the [TimeIO](https://helmholtz.software/software/timeio) stack to provide a robust, standardized, and scalable solution for handling sensor data.
 1.  **Standardization**: Uses the **OGC SensorThings API** (via Frost Server) for data ingestion. This ensures interoperability and a clear schema for Things, Sensors, and Observations.
@@ -179,7 +176,7 @@ The `timeio.env.example` and `timeio-realm.json` files contain default passwords
 
 ### 2. CORS and Redirect URIs
 - **CORS**: `CORS_ORIGINS` defaults to `*` to facilitate local development. In production, set this to the specific domain(s) of your frontend application in `.env`.
-- **Keycloak Redirects**: The default Keycloak configuration allows redirects to localhost ports (8000, 8080, 8082, 3000). Ensure `scripts/fix_keycloak_json.py` or your realm configuration is updated to reflect your actual production domains and ports.
+- **Keycloak Redirects**: The default Keycloak configuration allows redirects to localhost ports (8000, 8080, 8082, 3000). Ensure `scripts/configure_keycloak_realm.py` or your realm configuration is updated to reflect your actual production domains and ports.
 
 ## Quick Start
 
@@ -338,16 +335,59 @@ To support a highly customizable frontend (dashboards, maps, sub-portals) with p
 3.  **Logical Grouping & Metadata**
     - **Missing**: Sensors are currently just a flat list.
     - **Why**: "Sub-portals" and "Apps" need to group sensors logically (e.g., "Project A Sensors", "Region B Flood Watch").
-    - **distinction**: TimeIO manages the **Physical Inventory** (What sensors exist?). The Water DP backend must manage the **Application Context** (Which sensors belong to "Project X"?).
+    - **Distinction**: TimeIO manages the **Physical Inventory** (What sensors exist?). The Water DP backend must manage the **Application Context** (Which sensors belong to "Project X"?).
     - **Need**: `Project` or `App` entities in the database to link Users, Dashboards, and specific Sensors/Layers together.
 
 4.  **Security & Access Control (The "Secure" Part)**
-    - **Missing**: The Python API currently has no authentication middleware. All endpoints are public.
+    - **Requirement**: The Python API **must** be protected by authentication middleware before being exposed beyond a trusted local environment. Public, unauthenticated access should be limited to explicitly designated health or info endpoints only.
     - **Why**: User configurations and sensitive sensor data must be protected.
-    - **Need**:
-        - **AuthN (Authentication)**: Validate Keycloak JWT Bearer tokens on every request.
-        - **AuthZ (Authorization)**: Role-based access control (RBAC) (e.g., only "Admins" can create Projects).
+    - **Implementation hint (FastAPI + Keycloak JWT)**:
 
+        ```python
+        from fastapi import Depends, FastAPI, HTTPException, status
+        from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+        from jose import JWTError, jwt
+
+        app = FastAPI()
+        security = HTTPBearer()
+
+        # These should be configured from environment / settings
+        KEYCLOAK_PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----...-----END PUBLIC KEY-----"
+        KEYCLOAK_ISSUER = "https://keycloak.example.com/realms/your-realm"
+        KEYCLOAK_AUDIENCE = "your-api-client-id"
+
+        def get_current_user(
+            token: HTTPAuthorizationCredentials = Depends(security),
+        ) -> dict:
+            try:
+                payload = jwt.decode(
+                    token.credentials,
+                    KEYCLOAK_PUBLIC_KEY,
+                    algorithms=["RS256"],
+                    audience=KEYCLOAK_AUDIENCE,
+                    issuer=KEYCLOAK_ISSUER,
+                )
+            except JWTError:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid authentication credentials",
+                )
+            return payload
+
+        @app.get("/protected-endpoint")
+        def protected_endpoint(current_user: dict = Depends(get_current_user)):
+            # Example of using roles from Keycloak claims for RBAC:
+            roles = current_user.get("realm_access", {}).get("roles", [])
+            if "Admin" not in roles:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Insufficient permissions",
+                )
+            return {"message": "Secure data for admins only"}
+        ```
+
+    - **AuthN (Authentication)**: Validate Keycloak (or compatible) JWT Bearer tokens on every protected request using middleware/dependencies like `HTTPBearer` + JWT verification.
+    - **AuthZ (Authorization)**: Enforce role-based access control (RBAC) in route logic based on token claims (e.g., only `"Admin"` roles can create Projects).
 5.  **Bulk Data Import (The "Efficient Loading" Part)**
     - **Missing**: No API endpoints or utilities for bulk importing large datasets.
     - **Why**: Initial setup, data migration, or historical data loading requires efficiently inserting thousands/millions of records.
@@ -362,7 +402,7 @@ To support a highly customizable frontend (dashboards, maps, sub-portals) with p
 - [ ] **Computation Infrastructure**: Set up a Worker Queue (Celery) and Redis for background tasks.
 - [ ] **Prediction Engine**: Create a `PredictionService` that consumes historical TimeIO data, runs a model, and writes "Forecast" data back to TimeIO (as a new Datastream).
 - [ ] **Logical Grouping**: Add `Project` / `Group` tables to organize Resources (Layers, Sensors) into "Apps".
-- [ ] **Security**: Implement FastAPI Middleware to validate Keycloak Tokens (`Verification`) and enforce scopes/roles.
+- [ ] **Security**: Implement FastAPI Middleware to validate Keycloak Tokens (Validation) and enforce scopes/roles.
 - [ ] **Bulk Import**: Create endpoints and utilities for bulk data import (CSV, GeoJSON, Parquet) with background job processing.
 
 ### Implementation Plan
@@ -373,7 +413,7 @@ We need to decouple heavy computations from the main API.
 -   **Add a new container**: `worker` in `docker-compose.yml`.
 -   **Technology**: [Celery](https://docs.celeryq.dev/) (Distributed Task Queue).
 -   **Broker**: [Redis](https://redis.io/) (Already present in stack).
--   **Worklow**:
+-   **Workflow**:
     1.  User requests a "Flood Prediction" via API -> `POST /api/v1/jobs/predict`.
     2.  API pushes a task to Redis Queue.
     3.  Worker picks up the task, fetches data from TimeIO, runs the model, and writes results back to TimeIO.
