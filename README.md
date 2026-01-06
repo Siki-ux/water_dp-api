@@ -23,32 +23,123 @@ A reliable Python backend for handling requests between databases, GeoServer, ti
 
 The platform follows a modern microservices-inspired architecture:
 
+### Project Structure
+```
+water_dp/
+├── app/
+│   ├── api/                 # API endpoints (Geospatial, Time Series, Water Data)
+│   │   └── v1/
+│   │       └── endpoints/
+│   ├── core/               # Core functionality (Config, DB, Logging, Seeding)
+│   ├── models/             # SQLAlchemy Database models
+│   ├── schemas/            # Pydantic validation schemas
+│   ├── services/           # Business logic
+│   │   ├── database_service.py    # CRUD for all entities
+│   │   ├── geoserver_service.py   # GeoServer interaction
+│   │   └── time_series_service.py # TimeIO integration
+│   └── main.py            # FastAPI application entry point
+├── tests/                 # Unit and integration tests
+│   ├── test_services/     # Service layer tests
+│   ├── integration/       # Integration tests
+│   └── conftest.py        # Test configuration
+├── scripts/               # Utility scripts (Verification, Seeding)
+├── keycloak/             # Keycloak realm configuration
+├── grafana/              # Grafana provisioning
+├── alembic/              # Database migrations
+├── pyproject.toml        # Poetry dependencies and config
+├── docker-compose.yml    # Docker services orchestration
+├── Dockerfile           # Application container definition
+└── README.md            # This file
+```
+
 ### 1. Data Layer
-- **TimescaleDB**: The central database. Extends PostgreSQL to handle both:
-    - **Relational Data**: Geospatial features, application state.
-    - **Time Series Data**: High-volume sensor readings (Observations).
-- **MinIO**: S3-compatible object storage (component of TimeIO stack).
+- **PostgreSQL with Extensions**: The central database:
+    - **PostGIS**: Geospatial data (rivers, regions, boundaries)
+    - **TimescaleDB**: Time-series data (high-volume sensor readings)
+- **MinIO**: S3-compatible object storage (component of TimeIO stack)
+- **Redis**: Caching and message broker
 
 ### 2. TimeIO Stack (Sensor Data)
-- **Frost Server**: Implements the OGC SensorThings API standards.
-    - **Role**: Ingestion point for all sensor data.
-    - **Flow**: `Sensors -> Frost API (HTTP/MQTT) -> TimescaleDB`.
-- **Thing Management**: UI and API for managing Things, Sensors, and Datastreams.
-- **Keycloak**: IAM for securing TimeIO services.
-- **MQTT Broker**: Real-time message bus for sensor data ingestion.
+- **Frost Server**: Implements the OGC SensorThings API standards
+    - **Role**: Ingestion point for all sensor data
+    - **Flow**: `Sensors -> Frost API (HTTP/MQTT) -> TimescaleDB`
+- **Thing Management**: UI and API for managing Things, Sensors, and Datastreams
+- **Keycloak**: IAM for securing TimeIO services
+- **MQTT Broker**: Real-time message bus for sensor data ingestion
 
 ### 3. Application Layer
 - **FastAPI Backend (Water DP)**:
-    - **Role**: Main application logic, serving the frontend and orchestrating data.
-    - **Integration**: Queries TimescaleDB directly for analytics (anomaly detection) and lists metadata from the database.
+    - **Role**: Main application logic, serving the frontend and orchestrating data
+    - **Integration**: Queries TimescaleDB directly for analytics (anomaly detection) and lists metadata from the database
 - **GeoServer**:
-    - **Role**: Serves geospatial maps (WMS/WFS).
-    - **Integration**: Connects to PostGIS tables in TimescaleDB to serve vector layers (e.g., rivers, regions).
+    - **Role**: Serves geospatial maps (WMS/WFS)
+    - **Integration**: Connects to PostGIS tables in PostgreSQL to serve vector layers (e.g., rivers, regions)
 
 ### 4. Visualization
 - **Grafana**:
-    - **Role**: Interactive dashboards for time-series data.
-    - **Integration**: Connects directly to TimescaleDB to visualize seeded `OBSERVATIONS`.
+    - **Role**: Interactive dashboards for time-series data
+    - **Integration**: Connects directly to TimescaleDB to visualize seeded `OBSERVATIONS`
+
+### System Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        User[User/Client]
+        Frontend[Frontend App]
+    end
+    
+    subgraph "Application Layer"
+        API[FastAPI Backend<br/>Water DP]
+        GeoServer[GeoServer<br/>WMS/WFS]
+        Grafana[Grafana<br/>Dashboards]
+        ThingMgmt[Thing Management<br/>UI]
+    end
+    
+    subgraph "TimeIO Stack"
+        Frost[Frost Server<br/>OGC SensorThings API]
+        MQTT[MQTT Broker<br/>Mosquitto]
+        Keycloak[Keycloak<br/>IAM]
+    end
+    
+    subgraph "Data Layer"
+        DB[(PostgreSQL<br/>+ PostGIS<br/>+ TimescaleDB)]
+        Redis[(Redis<br/>Cache)]
+        MinIO[(MinIO<br/>Object Storage)]
+    end
+    
+    subgraph "Data Sources"
+        Sensors[IoT Sensors<br/>Water Stations]
+    end
+    
+    %% User connections
+    User --> API
+    User --> GeoServer
+    User --> Grafana
+    User --> ThingMgmt
+    Frontend --> API
+    Frontend --> GeoServer
+    
+    %% Application layer connections
+    API -->|Read/Write| DB
+    API -->|Cache| Redis
+    GeoServer -->|Read Geo Data<br/>PostGIS| DB
+    Grafana -->|Read Time Series<br/>TimescaleDB| DB
+    ThingMgmt -->|Manage Things| Frost
+    
+    %% TimeIO connections
+    Frost -->|Persist| DB
+    Frost -->|Metadata| MinIO
+    Frost -.->|Authenticate| Keycloak
+    ThingMgmt -.->|Authenticate| Keycloak
+    
+    %% Sensor data flow
+    Sensors -->|HTTP/MQTT| MQTT
+    MQTT --> Frost
+    Sensors -->|HTTP| Frost
+```
+
+```
 
 ## TimeIO Integration
 
@@ -77,23 +168,6 @@ The entire stack is containerized in `docker-compose.yml`. Key configuration fil
 - `timeio.env`: Specific configuration for the TimeIO microservices (Auth, DB, MQTT).
     - *Tip*: Use `timeio.env.example` as a template.
 - `init.sql`: Ensures `timescaledb` and `postgis` extensions are enabled on startup.
-
-```mermaid
-graph TD
-    User[User/Client] --> API[FastAPI Backend]
-    User --> GeoServer
-    User --> Grafana
-    User --> ThingMgmt[Thing Management UI]
-
-    API -->|Read/Write| DB[(TimescaleDB)]
-    GeoServer -->|Read Geo Data| DB
-    Grafana -->|Read Time Series| DB
-
-    Sensor[Sensors/Seed Script] -->|HTTP/MQTT| Frost[Frost Server]
-    Frost -->|Persist| DB
-    ThingMgmt --> Frost
-    ThingMgmt --> Frost
-```
 
 ## Security Considerations
 
@@ -274,12 +348,22 @@ To support a highly customizable frontend (dashboards, maps, sub-portals) with p
         - **AuthN (Authentication)**: Validate Keycloak JWT Bearer tokens on every request.
         - **AuthZ (Authorization)**: Role-based access control (RBAC) (e.g., only "Admins" can create Projects).
 
+5.  **Bulk Data Import (The "Efficient Loading" Part)**
+    - **Missing**: No API endpoints or utilities for bulk importing large datasets.
+    - **Why**: Initial setup, data migration, or historical data loading requires efficiently inserting thousands/millions of records.
+    - **Need**:
+        - **Bulk GeoJSON Import**: Load large geographic datasets into PostGIS/GeoServer.
+        - **Bulk Time-Series Import**: Efficiently insert millions of sensor readings into TimescaleDB.
+        - **CSV/Parquet Support**: Common data formats for hydrology data.
+        - **Background Processing**: Use job queue for large imports to avoid timeout.
+
 ### TODO
 - [ ] **User Config Store**: Design DB schema and API for `UserDashboards` and `WidgetConfigs` (JSONB).
 - [ ] **Computation Infrastructure**: Set up a Worker Queue (Celery) and Redis for background tasks.
 - [ ] **Prediction Engine**: Create a `PredictionService` that consumes historical TimeIO data, runs a model, and writes "Forecast" data back to TimeIO (as a new Datastream).
 - [ ] **Logical Grouping**: Add `Project` / `Group` tables to organize Resources (Layers, Sensors) into "Apps".
 - [ ] **Security**: Implement FastAPI Middleware to validate Keycloak Tokens (`Verification`) and enforce scopes/roles.
+- [ ] **Bulk Import**: Create endpoints and utilities for bulk data import (CSV, GeoJSON, Parquet) with background job processing.
 
 ### Implementation Plan
 To achieve the above goals, we will implement the following:
@@ -312,6 +396,24 @@ We will add new Tables to `app/models/` (via Alembic) to support "Apps" and "Das
 -   **Job Queue**: `celery` + `redis`
 -   **Machine Learning**: `scikit-learn` or `prophet` (inside the `worker` container).
 -   **JSON Storage**: SQLAlchemy `JSONB` type (for flexible dashboard layouts).
+
+#### 5. Bulk Data Import Tools  
+We need efficient tools for loading large datasets without blocking the API.
+-   **API Endpoints**:
+    - `POST /api/v1/bulk/import-geojson` - Upload GeoJSON files for PostGIS/GeoServer
+    - `POST /api/v1/bulk/import-timeseries` - Upload CSV with sensor data to TimescaleDB
+    - `POST /api/v1/bulk/import-parquet` - Upload Parquet files (efficient for large time-series)
+-   **Technologies**:
+    - `pandas` (already present) for CSV/Parquet parsing
+    - `geopandas` for GeoJSON processing and validation
+    - PostgreSQL `COPY` command for fast bulk inserts (10-100x faster than row-by-row)
+    - Celery for background processing (large files)
+-   **Workflow**:
+    1. Upload file via API (file validation and size check)
+    2. Push job to Celery queue (returns job ID immediately)
+    3. Worker processes file in background
+    4. Use database bulk insert (not row-by-row)
+    5. Client polls `/api/v1/jobs/{job_id}` for progress/completion
 
 ### Fixes
 - [x] Use TimeIO to replace the custom time-series storage engine
