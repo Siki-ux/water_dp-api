@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Dict, List
 from uuid import UUID
 
@@ -8,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.models.user_context import Project, ProjectMember, project_sensors
 from app.schemas.user_context import ProjectCreate, ProjectMemberCreate, ProjectUpdate
+
+logger = logging.getLogger(__name__)
 
 
 class ProjectService:
@@ -177,10 +180,12 @@ class ProjectService:
             db.commit()
         except IntegrityError:
             db.rollback()
-            # Ignore duplicate violation provided it's the same link
+            # Log the duplicate attempt
+            logger.info(f"Sensor {sensor_id} already in project {project_id}")
             pass
-        except Exception:
+        except Exception as e:
             db.rollback()
+            logger.error(f"Error adding sensor to project: {e}")
             raise
         return {"project_id": project_id, "sensor_id": sensor_id}
 

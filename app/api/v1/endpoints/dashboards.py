@@ -3,6 +3,8 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, status
+from jose import JWTError
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.api import deps
@@ -28,8 +30,10 @@ async def get_optional_current_user(request: Request) -> dict | None:
     token = auth_header.split(" ")[1]
     try:
         return await verify_token(token)
+    except (JWTError, ValidationError):
+        return None
     except Exception as e:
-        logger.error(f"Token verification failed: {e}")
+        logger.error(f"Token verification unexpected error: {e}")
         return None
 
 

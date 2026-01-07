@@ -555,5 +555,6 @@ def seed_data(db: Session) -> None:
             logger.info("Demo Project and Dashboard seeded.")
 
     except Exception as e:
-        logger.error(f"Database seeding failed: {e}")
+        logger.error(f"Seeding failed: {e}")
         db.rollback()
+        raise e
