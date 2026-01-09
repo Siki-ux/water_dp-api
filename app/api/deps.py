@@ -64,7 +64,7 @@ async def get_current_active_superuser(
     realm_access = current_user.get("realm_access", {})
     roles = realm_access.get("roles", [])
     if "admin" not in roles and "admin-siki" not in roles:
-         raise HTTPException(
+        raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="The user doesn't have enough privileges",
         )
