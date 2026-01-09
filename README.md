@@ -31,7 +31,7 @@ water_dp/
 │   │   └── v1/
 │   │       └── endpoints/
 │   │           ├── bulk.py          # Bulk import endpoints
-│   │           └── computations.py  # Computation execution endpoints
+│   │           └── computations.py   # Computation execution endpoints
 │   ├── core/               # Core functionality (Config, DB, Logging, Seeding, Security)
 │   │   └── celery_app.py   # Celery application configuration
 │   ├── models/             # SQLAlchemy Database models
@@ -49,7 +49,7 @@ water_dp/
 ├── tests/                 # Unit and integration tests
 │   ├── test_services/     # Service layer tests
 │   ├── integration/       # Integration tests
-│   ├── test_api_bulk.py         # API tests for bulk import
+│   ├── test_api_bulk.py # API tests for bulk import
 │   ├── test_api_computations.py # API tests for computations
 │   └── conftest.py        # Test configuration
 ├── scripts/               # Utility scripts (Verification, Seeding)
