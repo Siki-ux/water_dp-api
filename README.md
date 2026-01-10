@@ -223,6 +223,30 @@ graph TB
     Sensors -->|HTTP| Frost
 ```
 
+## TimeIO & Frontend Architecture Strategy
+*(Added Jan 2026)*
+
+To accelerate development and leverage existing robust tools, we have adopted a **"Microservice UI Composition"** strategy for Device Management.
+
+### Decision
+Instead of rebuilding complex device management interfaces (Parser config, Access Policies, Metadata editing) in the `hydro_portal`, we **reuse** the existing [TimeIO Thing Management](https://helmholtz.software/software/timeio) UI.
+
+### Integration Workflow
+1.  **Device Provisioning**: Performed in **TimeIO TM** (`http://localhost:8082`).
+    *   Admins create Things, Datastreams, and Parsers here.
+2.  **Visualization & Projects**: Performed in **Hydro Portal** (`http://localhost:3000`).
+    *   Users **"Link"** existing TimeIO Things to their Projects instead of creating them from scratch.
+    *   Hydro Portal focuses purely on Dashboards, Maps, and Analytics.
+3.  **Single Sign-On (SSO)**:
+    *   Both applications share the same **Keycloak** Identity Provider.
+    *   Users seamlessly switch between "Dashboards" (Hydro Portal) and "Device Settings" (TimeIO TM) without re-authenticating.
+
+### Implementation Details
+*   **Frontend**: `hydro_portal` removes "Create Sensor" forms in favor of a "Link Sensor" modal (listing things from `GET /things`).
+*   **Navigation**: "Manage Devices" links in Hydro Portal redirect to TimeIO TM.
+*   **Keycloak Client**: The `timeIO-client` is configured to allow redirects to both `http://localhost:3000` and `http://localhost:8082`.
+
+
 ## TimeIO Integration
 ### Why TimeIO?
 The project integrates the [TimeIO](https://helmholtz.software/software/timeio) stack to provide a robust, standardized, and scalable solution for handling sensor data.
