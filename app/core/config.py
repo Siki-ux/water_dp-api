@@ -88,6 +88,7 @@ class Settings(BaseSettings):
             return ["*"]
         if self.cors_origins.strip().startswith("["):
             import json
+
             try:
                 return json.loads(self.cors_origins)
             except json.JSONDecodeError:

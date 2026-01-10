@@ -309,24 +309,24 @@ class TimeSeriesService:
             payload["name"] = data["name"]
         if "description" in data:
             payload["description"] = data["description"]
-        
+
         # properties map
         props_to_update = {}
         if "station_id" in data:
             props_to_update["station_id"] = data["station_id"]
-        
+
         # Handle Enum or value for status/type
         if "status" in data:
             val = data["status"]
             props_to_update["status"] = getattr(val, "value", str(val))
-        
+
         if "station_type" in data:
             val = data["station_type"]
             props_to_update["station_type"] = getattr(val, "value", str(val))
 
         if "organization" in data:
             props_to_update["organization"] = data["organization"]
-        
+
         if "properties" in data and isinstance(data["properties"], dict):
             props_to_update.update(data["properties"])
 
@@ -339,7 +339,9 @@ class TimeSeriesService:
         # 4. Execute PATCH
         patch_url = f"{self._get_frost_url()}/Things({iot_id})"
         try:
-            patch_resp = requests.patch(patch_url, json=payload, timeout=self._get_timeout())
+            patch_resp = requests.patch(
+                patch_url, json=payload, timeout=self._get_timeout()
+            )
             patch_resp.raise_for_status()
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to patch station {iot_id}: {e}")
@@ -627,8 +629,6 @@ class TimeSeriesService:
             except Exception as e:
                 logger.warning(f"Failed to ensure location for Thing {thing_id}: {e}")
                 # We proceed, but import might fail if FoI cannot be generated.
-
-
 
         # 2. Prepare Payloads
         # FROST Server might support batch operations, but standard OGC SensorThings API
@@ -1358,7 +1358,9 @@ class TimeSeriesService:
                 if vals:
                     thing_id = vals[0]["@iot.id"]
             except Exception as e:
-                logger.debug(f"Failed to lookup thing by property {station_id_str}: {e}")
+                logger.debug(
+                    f"Failed to lookup thing by property {station_id_str}: {e}"
+                )
 
         if not thing_id:
             raise ResourceNotFoundException(
