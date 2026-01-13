@@ -3,8 +3,6 @@ from unittest.mock import patch
 from app.core.exceptions import ResourceNotFoundException, TimeSeriesException
 
 
-
-
 def test_get_stations_success(client):
     with patch("app.api.v1.endpoints.water_data.TimeSeriesService") as MockService:
         MockService.return_value.get_stations.return_value = []
