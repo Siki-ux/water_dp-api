@@ -54,8 +54,8 @@ def seed_datasources():
                     "host": "localhost",
                     "port": 5432,
                     "database": "configs",
-                    "user": "postgres",
-                    "password": "password",
+                    "user": os.getenv("TIMEIO_DB_USER", "postgres"),
+                    "password": os.getenv("TIMEIO_DB_PASSWORD", "password"),
                 },
             },
         ]

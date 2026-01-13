@@ -1,7 +1,8 @@
 from cryptography.fernet import Fernet
-
 from app.core.config import settings
+import logging
 
+logger = logging.getLogger(__name__)
 
 class EncryptionService:
     def __init__(self):
@@ -9,10 +10,10 @@ class EncryptionService:
         if not self.key:
             # Generate a temporary key for development if not provided,
             # or raise warning. Ideally should be provided.
-            # For now, we'll generate one but warn (prints to stderr usually)
+            # For now, we'll generate one but warn
             # In production, this must be set.
             self.key = Fernet.generate_key().decode()
-            print(
+            logger.warning(
                 "WARNING: ENCRYPTION_KEY not set. Using temporary key. Data will not be recoverable after restart."
             )
 

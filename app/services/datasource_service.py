@@ -140,7 +140,11 @@ class DataSourceService:
             try:
                 engine = create_engine(dsn)
                 with engine.connect() as conn:
-                    # Execute
+                    # Execute using text() which is safer than raw string execution if bound params were used,
+                    # but here the query itself comes from the user. 
+                    # We assume the VALIDATION happens at the API layer or the user is trusted admin.
+                    # Ideally we should use bind parameters if the query was static.
+                    # Since it's a raw query tool, we can at least use text() wrapper correctly.
                     result = conn.execute(text(query))
 
                     # Fetch results if it's a SELECT (returns rows)
@@ -164,16 +168,3 @@ class DataSourceService:
                 raise Exception(f"Query failed: {str(e)}")
 
         raise Exception(f"Unsupported datasource type: {datasource.type}")
-
-    def mask_credentials(self, datasource: DataSource) -> DataSource:
-        """
-        Return a copy or modify details to mask password.
-        Since DataSource is an ORM object, we shouldn't modify it directly if attached to session.
-        We return a dictionary or handle it in Schema validation.
-        But for safety, let's helper method to return a dict suitable for schema.
-        """
-        # Actually, schemas should handle this via `connection_details_safe` property if mapped,
-        # but masking in service is cleaner.
-        # We can't modify the ORM object in place safely without persisting it.
-        # So we verify where this is used. If we return the ORM object, Pydantic parses it.
-        pass

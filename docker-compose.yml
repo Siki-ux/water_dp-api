@@ -109,6 +109,12 @@ services:
       - FROST_URL=http://frost:8080/FROST-Server/v1.1
     ports:
       - "8000:8000"
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy
@@ -286,7 +292,7 @@ services:
       thing-management-db-migrations:
         condition: service_completed_successfully
       api:
-        condition: service_started
+        condition: service_healthy
     networks:
       - water_dp_network
     restart: "no"

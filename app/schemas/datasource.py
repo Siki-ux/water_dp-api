@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class DataSourceBase(BaseModel):
@@ -31,10 +31,11 @@ class DataSourceResponse(DataSourceBase):
     class Config:
         from_attributes = True
 
-    @property
-    def connection_details_safe(self) -> Dict[str, Any]:
-        pass
-
-
-class DataSourceResponseSafe(DataSourceResponse):
-    pass
+    @field_validator("connection_details")
+    @classmethod
+    def mask_password(cls, v: Dict[str, Any]) -> Dict[str, Any]:
+        if v and "password" in v:
+            v_copy = v.copy()
+            v_copy["password"] = "********"
+            return v_copy
+        return v

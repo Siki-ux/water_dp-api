@@ -31,19 +31,6 @@ def get_project_datasources(
     # Ideally verify project access here
     datasources = service.get_by_project(project_id)
 
-    # Mask passwords
-    for ds in datasources:
-        if isinstance(ds.connection_details, dict):
-            # Create safety copy if needed, but for response model Pydantic will extract fields.
-            # We can modify the dict in memory to mask password before Pydantic serialization
-            # WARNING: This modifies the object attached to session IF not careful.
-            # But since we are reading, it might be fine if we don't commit.
-            # Safer to return a list of dicts or Use Pydantic's masking.
-            # Let's clone the dict for safety preventing session dirtying
-            ds.connection_details = ds.connection_details.copy()
-            if "password" in ds.connection_details:
-                ds.connection_details["password"] = "********"
-
     return datasources
 
 
@@ -60,16 +47,9 @@ def create_datasource(
     service = DataSourceService(db)
     datasource = service.create(project_id, schema)
 
-    # Mask password for response
-    # We need to refresh or it's already there? service.create does refresh.
-    # Masking:
-    ds_conf = datasource.connection_details.copy()
-    if "password" in ds_conf:
-        ds_conf["password"] = "********"
-    # We assign it to the property just for serialization, NOT committing
-    datasource.connection_details = ds_conf
-
     return datasource
+
+
 
 
 @router.put(
@@ -91,13 +71,9 @@ def update_datasource(
     if not datasource:
         raise HTTPException(status_code=404, detail="Datasource not found")
 
-    # Mask password
-    ds_conf = datasource.connection_details.copy()
-    if "password" in ds_conf:
-        ds_conf["password"] = "********"
-    datasource.connection_details = ds_conf
-
     return datasource
+
+
 
 
 @router.delete("/projects/{project_id}/datasources/{datasource_id}")

@@ -235,7 +235,7 @@ def run_seed():
         mqtt_password = get_random_chars(16)
 
         try:
-             # 1. Insert Database
+            # 1. Insert Database
             cursor.execute(
                 'INSERT INTO "database" (db_schema, "user", "password", ro_user, ro_password) VALUES (%s, %s, %s, %s, %s) RETURNING id',
                 (db_schema, db_user, db_password, ro_user, ro_password),

@@ -97,13 +97,31 @@ water_dp/
 
 ### 5. Database Schema
 
-The database relies on three main groups of tables: **Geospatial (GIS)**, **User Context (Projects)**, and **Computations**.
+The database is shared but logically segmented into three distinct domains. The usage of this hybrid schema allows us to separate **Application Logic** from **Data Ingestion** and **High-Volume Storage**.
+
+#### 1. Water DP (User Context & GIS)
+These tables manage the modern application state, user projects, and geospatial layers.
+- **projects**: The central user workspace. Linked to Keycloak users via `owner_id`.
+- **project_sensors**: A lightweight link table connecting a **Project** (UUID) to a **TimeIO Sensor** (String ID).
+- **geo_layers / geo_features**: PostGIS-enabled tables for storing map configurations and geometries (polygons, points).
+- **computation_scripts / computation_jobs**: Store user-uploaded Python scripts and track the status of asynchronous Celery tasks.
+
+#### 2. Thing Management (Ingestion Config)
+These legacy tables are used by the **Thing Management API** to configure how data enters the system.
+- **project_tbl** (Legacy): The "backend" view of a project. Used to group database credentials.
+- **mqtt / database**: Stores credentials for the ingestion services (MQTT Broker, Timescale Writer).
+
+#### 3. TimeIO / OGC (Sensor Data)
+These tables implement the **OGC SensorThings API** standard and are managed by the **Frost Server**.
+- **THINGS**: Represents the physical or virtual station.
+- **DATASTREAMS**: A stream of data (e.g., "Water Level") associated with a Thing.
+- **OBSERVATIONS**: The actual time-series data points (Timestamp + Value), stored in **TimescaleDB** hypertables for performance.
 
 ```mermaid
 erDiagram
-    %% User Context
+    %% --- Domain: Water DP (Application) ---
     PROJECTS {
-        uuid id PK
+        uuid id PK "New Project ID"
         string name
         string owner_id "Keycloak User ID"
     }
@@ -111,7 +129,6 @@ erDiagram
     DASHBOARDS {
         uuid id PK
         uuid project_id FK
-        string name
         json layout_config
     }
     
@@ -120,44 +137,69 @@ erDiagram
         uuid project_id FK
         string name
         string filename
-        string uploaded_by
     }
 
     COMPUTATION_JOBS {
         string id PK "Celery Task ID"
         uuid script_id FK
-        string user_id
         string status
-        string start_time
     }
-
+    
     PROJECT_SENSORS {
         uuid project_id PK, FK
-        string sensor_id PK "TimeIO Thing ID"
+        string sensor_id PK "TimeIO String ID"
     }
-
-    %% Geospatial
-    GEO_LAYERS {
-        string layer_name PK
-        string layer_type
-        string workspace
-    }
-
-    GEO_FEATURES {
-        string feature_id PK
-        string layer_id FK
-        geometry geometry
-        jsonb properties
-    }
-
-    %% Relationships
-    PROJECTS ||--o{ DASHBOARDS : contains
-    PROJECTS ||--o{ COMPUTATION_SCRIPTS : owns
-    PROJECTS ||--o{ PROJECT_SENSORS : links_to
-    
-    COMPUTATION_SCRIPTS ||--o{ COMPUTATION_JOBS : executes
 
     GEO_LAYERS ||--o{ GEO_FEATURES : contains
+
+    %% --- Domain: Thing Management (Ingestion) ---
+    PROJECT_TBL {
+        int id PK "Legacy ID"
+        uuid uuid "Sync ID"
+        string name
+    }
+    
+    MQTT_CONFIG {
+        int id PK
+        int project_id FK
+        string topic
+        string user
+    }
+
+    %% --- Domain: TimeIO / OGC (Data) ---
+    THINGS {
+        bigint id PK "Internal ID"
+        string name "Unique Name"
+        json properties "Contains station_id"
+    }
+    
+    DATASTREAMS {
+        bigint id PK
+        bigint thing_id FK
+    }
+    
+    OBSERVATIONS {
+        bigint id PK
+        bigint datastream_id FK
+        timestamp phenomenonTime
+        double result
+    }
+
+    %% --- Relationships ---
+    
+    %% App User Context
+    PROJECTS ||--o{ DASHBOARDS : contains
+    PROJECTS ||--o{ PROJECT_SENSORS : links_to
+    
+    %% Logical Link: App -> TimeIO
+    PROJECT_SENSORS }|..|| THINGS : "Refers to (by Name/Prop)"
+
+    %% Ingestion Config
+    PROJECT_TBL ||--o{ MQTT_CONFIG : owns
+
+    %% OGC Hierarchy
+    THINGS ||--o{ DATASTREAMS : has
+    DATASTREAMS ||--o{ OBSERVATIONS : contains
 ```
 
 ### System Architecture Diagram

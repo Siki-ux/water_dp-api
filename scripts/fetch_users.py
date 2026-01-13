@@ -8,8 +8,8 @@ def get_users():
     # Admin CLI credentials
     data = {
         "client_id": "admin-cli",
-        "username": "admin",
-        "password": "admin",  # Default from timeio.env.example
+        "username": os.getenv("KEYCLOAK_ADMIN_USERNAME", "admin"),
+        "password": os.getenv("KEYCLOAK_ADMIN_PASSWORD", "admin"),
         "grant_type": "password"
     }
     
@@ -31,8 +31,8 @@ def get_users():
             
     except Exception as e:
         print(f"Error: {e}")
-        if 'r' in locals() and r:
-             print(r.text)
+        # Only print response text if requests failed
+        pass
 
 if __name__ == "__main__":
     get_users()

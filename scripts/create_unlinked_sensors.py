@@ -22,7 +22,7 @@ def create_unlinked_sensors():
     # Try fallback if default unreachable (assuming localhost env)
     try:
         requests.get(FROST_URL, timeout=5)
-    except:
+    except requests.RequestException:
         FROST_URL = "http://localhost:8083/FROST-Server/v1.1"
         logger.info(f"Using fallback FROST URL: {FROST_URL}")
 

@@ -734,17 +734,25 @@ def seed_advanced_logic(db: Session):
         db.commit()
 
     # 3. Link Sensors to Project 2 (IDs 1 and 5 if available)
+    # 3. Link Sensors to Project 2 (IDs 1 and 5 if available)
     target_sensors = ["1", "5"]
     for sid in target_sensors:
-        exists = db.query(project_sensors).filter_by(project_id=p2.id, sensor_id=sid).first()
+        stmt = project_sensors.select().where(
+            and_(
+                project_sensors.c.project_id == p2.id,
+                project_sensors.c.sensor_id == sid
+            )
+        )
+        exists = db.execute(stmt).first()
         if not exists:
             # Only link if not already linked (simple check)
             # We don't check if sensor exists in FROST here, assuming basic seeding created ID 1
-            stmt = project_sensors.insert().values(project_id=p2.id, sensor_id=sid)
+            insert_stmt = project_sensors.insert().values(project_id=p2.id, sensor_id=sid)
             try:
-                db.execute(stmt)
+                db.execute(insert_stmt)
                 db.commit()
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Failed to link sensor {sid}: {e}")
                 db.rollback()
 
 
@@ -755,7 +763,7 @@ def seed_simulator_entities():
     FROST_URL = settings.frost_url
     try:
          requests.get(FROST_URL, timeout=5)
-    except:
+    except requests.RequestException:
         FROST_URL = "http://localhost:8083/FROST-Server/v1.1"
 
     # Helper

@@ -36,7 +36,7 @@ def register_system_datasources(db: Session):
             project = db.query(Project).first()
 
         if not project:
-            logger.warning("No projects found. Skipping System Datasouce registration.")
+            logger.warning("No projects found. Skipping System Datasource registration.")
             return
 
         system_sources = [

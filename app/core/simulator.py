@@ -74,7 +74,7 @@ def run_simulator():
         try:
             requests.get(frost_url, timeout=2)
             break
-        except:
+        except requests.RequestException:
             logger.info("Waiting for FROST API...")
             time.sleep(5)
 
