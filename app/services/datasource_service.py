@@ -141,7 +141,7 @@ class DataSourceService:
                 engine = create_engine(dsn)
                 with engine.connect() as conn:
                     # Execute using text() which is safer than raw string execution if bound params were used,
-                    # but here the query itself comes from the user. 
+                    # but here the query itself comes from the user.
                     # We assume the VALIDATION happens at the API layer or the user is trusted admin.
                     # Ideally we should use bind parameters if the query was static.
                     # Since it's a raw query tool, we can at least use text() wrapper correctly.

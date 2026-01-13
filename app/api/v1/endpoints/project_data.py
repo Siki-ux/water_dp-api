@@ -20,9 +20,7 @@ from sqlalchemy.orm import Session
 from app.api import deps
 from app.core.database import get_db
 from app.schemas.time_series import (
-    StationCreate,
     StationResponse,
-    StationUpdate,
     TimeSeriesDataCreate,
 )
 from app.services.project_service import ProjectService
@@ -123,10 +121,6 @@ def link_project_sensor(
         )
 
     return {"status": "success", "message": "Sensor linked successfully"}
-
-
-
-
 
 
 @router.delete("/{project_id}/things/{thing_id}")

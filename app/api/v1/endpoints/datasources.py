@@ -50,8 +50,6 @@ def create_datasource(
     return datasource
 
 
-
-
 @router.put(
     "/projects/{project_id}/datasources/{datasource_id}",
     response_model=DataSourceResponse,
@@ -72,8 +70,6 @@ def update_datasource(
         raise HTTPException(status_code=404, detail="Datasource not found")
 
     return datasource
-
-
 
 
 @router.delete("/projects/{project_id}/datasources/{datasource_id}")
@@ -138,6 +134,7 @@ def execute_query(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @router.get("/datasources/available-sensors")
 def get_available_sensors(
     db: Session = Depends(get_db),
@@ -148,6 +145,7 @@ def get_available_sensors(
     Used for linking sensors to projects.
     """
     import requests
+
     from app.core.config import settings
 
     frost_url = settings.frost_url
@@ -162,20 +160,24 @@ def get_available_sensors(
         response.raise_for_status()
         data = response.json()
         things = data.get("value", [])
-        
+
         # Transform for frontend if needed, or return raw.
         # Frontend expects id, name, description. properties.
         # FROST returns @iot.id. We map it to id.
         formatted = []
         for t in things:
-            formatted.append({
-                "id": str(t.get("@iot.id")),
-                "name": t.get("name"),
-                "description": t.get("description"),
-                "properties": t.get("properties", {})
-            })
-            
+            formatted.append(
+                {
+                    "id": str(t.get("@iot.id")),
+                    "name": t.get("name"),
+                    "description": t.get("description"),
+                    "properties": t.get("properties", {}),
+                }
+            )
+
         return formatted
 
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch sensors from TimeIO: {e}")
+        raise HTTPException(
+            status_code=502, detail=f"Failed to fetch sensors from TimeIO: {e}"
+        )

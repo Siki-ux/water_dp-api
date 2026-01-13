@@ -8,7 +8,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, has_role
+from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.schemas.water_data import (
     BulkDataPointCreate,
@@ -19,15 +19,12 @@ from app.schemas.water_data import (
     WaterDataPointResponse,
     WaterQualityCreate,
     WaterQualityResponse,
-    WaterStationCreate,
     WaterStationResponse,
-    WaterStationUpdate,
 )
 from app.services.time_series_service import TimeSeriesService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
 
 
 @router.get("/stations", response_model=StationListResponse)
@@ -57,7 +54,6 @@ async def get_station(station_id: str, db: Session = Depends(get_db)):
     """Get a specific water station."""
     service = TimeSeriesService(db)
     return service.get_station(station_id)
-
 
 
 @router.post("/data-points", response_model=WaterDataPointResponse, status_code=201)

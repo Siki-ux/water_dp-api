@@ -710,7 +710,9 @@ def seed_advanced_logic(db: Session):
     # 1. Add Siki to Demo Project
     p1 = db.query(Project).filter(Project.name == "Demo Project").first()
     if p1:
-        member = db.query(ProjectMember).filter_by(project_id=p1.id, user_id=SIKI_ID).first()
+        member = (
+            db.query(ProjectMember).filter_by(project_id=p1.id, user_id=SIKI_ID).first()
+        )
         if not member:
             logger.info(f"Adding Siki ({SIKI_ID}) to Demo Project...")
             db.add(ProjectMember(project_id=p1.id, user_id=SIKI_ID, role="editor"))
@@ -723,12 +725,12 @@ def seed_advanced_logic(db: Session):
         p2 = Project(
             name="Demo Project 2",
             description="Second project for access control testing.",
-            owner_id=USER2_ID
+            owner_id=USER2_ID,
         )
         db.add(p2)
         db.commit()
         db.refresh(p2)
-        
+
         # Add User 2 as Admin
         db.add(ProjectMember(project_id=p2.id, user_id=USER2_ID, role="admin"))
         db.commit()
@@ -740,14 +742,16 @@ def seed_advanced_logic(db: Session):
         stmt = project_sensors.select().where(
             and_(
                 project_sensors.c.project_id == p2.id,
-                project_sensors.c.sensor_id == sid
+                project_sensors.c.sensor_id == sid,
             )
         )
         exists = db.execute(stmt).first()
         if not exists:
             # Only link if not already linked (simple check)
             # We don't check if sensor exists in FROST here, assuming basic seeding created ID 1
-            insert_stmt = project_sensors.insert().values(project_id=p2.id, sensor_id=sid)
+            insert_stmt = project_sensors.insert().values(
+                project_id=p2.id, sensor_id=sid
+            )
             try:
                 db.execute(insert_stmt)
                 db.commit()
@@ -762,7 +766,7 @@ def seed_simulator_entities():
     """
     FROST_URL = settings.frost_url
     try:
-         requests.get(FROST_URL, timeout=5)
+        requests.get(FROST_URL, timeout=5)
     except requests.RequestException:
         FROST_URL = "http://localhost:8083/FROST-Server/v1.1"
 
@@ -773,8 +777,8 @@ def seed_simulator_entities():
             name = payload["name"]
             r = requests.get(f"{FROST_URL}/Things?$filter=name eq '{name}'", timeout=5)
             if r.status_code == 200 and r.json().get("value"):
-                return # Already exists
-            
+                return  # Already exists
+
             resp = requests.post(f"{FROST_URL}/Things", json=payload, timeout=5)
             if resp.status_code == 201:
                 logger.info(f"Created Simulator Thing: {name}")
@@ -782,37 +786,48 @@ def seed_simulator_entities():
             logger.warning(f"Failed to create sim thing {payload.get('name')}: {e}")
 
     # 1. Auto-Simulated Sensor (For Simulator Service)
-    create_thing({
-        "name": "Auto-Simulated Sensor",
-        "description": "Automatically created for Simulator service.",
-        "properties": {
-            "station_id": "SIM_AUTO_01",
-            "simulated": "true",
-            "type": "river",
-            "status": "active"
-        },
-        "Locations": [{
-            "name": "Sim Location",
-            "description": "Virtual",
-            "encodingType": "application/vnd.geo+json",
-            "location": {"type": "Point", "coordinates": [14.5, 50.1]}
-        }]
-    })
+    create_thing(
+        {
+            "name": "Auto-Simulated Sensor",
+            "description": "Automatically created for Simulator service.",
+            "properties": {
+                "station_id": "SIM_AUTO_01",
+                "simulated": "true",
+                "type": "river",
+                "status": "active",
+            },
+            "Locations": [
+                {
+                    "name": "Sim Location",
+                    "description": "Virtual",
+                    "encodingType": "application/vnd.geo+json",
+                    "location": {"type": "Point", "coordinates": [14.5, 50.1]},
+                }
+            ],
+        }
+    )
 
     # 2. Unlinked Sensors (For UI Testing)
     for i in range(1, 6):
-        create_thing({
-            "name": f"Unlinked Sensor {i}",
-            "description": "Available for linking.",
-            "properties": {
-                "station_id": f"UNLINKED_0{i}",
-                "status": "active",
-                "type": "river"
-            },
-            "Locations": [{
-                "name": f"Loc {i}",
-                "description": "Location",
-                "encodingType": "application/vnd.geo+json",
-                "location": {"type": "Point", "coordinates": [14.4 + (i*0.01), 50.0]}
-            }]
-        })
+        create_thing(
+            {
+                "name": f"Unlinked Sensor {i}",
+                "description": "Available for linking.",
+                "properties": {
+                    "station_id": f"UNLINKED_0{i}",
+                    "status": "active",
+                    "type": "river",
+                },
+                "Locations": [
+                    {
+                        "name": f"Loc {i}",
+                        "description": "Location",
+                        "encodingType": "application/vnd.geo+json",
+                        "location": {
+                            "type": "Point",
+                            "coordinates": [14.4 + (i * 0.01), 50.0],
+                        },
+                    }
+                ],
+            }
+        )
