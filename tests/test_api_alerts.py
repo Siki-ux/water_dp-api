@@ -15,7 +15,6 @@ def test_create_alert_definition(client, mock_db_session: Session):
 
         # Assign ID/Timestamps on add
         def add_side_effect(obj):
-            print(f"DEBUG ADD: {type(obj)} {obj}")
             if not getattr(obj, "id", None):
                 import uuid
                 from datetime import datetime
@@ -42,8 +41,6 @@ def test_create_alert_definition(client, mock_db_session: Session):
                     obj.is_active = True
                 if hasattr(obj, "severity") and getattr(obj, "severity", None) is None:
                     obj.severity = "warning"
-
-                print(f"DEBUG: Assigned ID {obj.id}")
 
         mock_db_session.add.side_effect = add_side_effect
 
@@ -87,7 +84,6 @@ def test_list_alert_definitions(client, mock_db_session: Session):
 
     # Mock Query
     def query_side_effect(model):
-        print(f"DEBUG QUERY: {model}")
         if model == AlertDefinition:
             m = MagicMock()
             m.filter.return_value.all.return_value = [definition]
@@ -157,13 +153,27 @@ def test_get_alert_history(client, mock_db_session: Session):
 
     pid = uuid.uuid4()
 
+    from datetime import datetime
+
+    aid = uuid.uuid4()
+    did = uuid.uuid4()
     alert = Alert(
-        id=uuid.uuid4(),
-        definition_id=uuid.uuid4(),  # doesn't matter for mock return
+        id=aid,
+        definition_id=did,
         status="active",
         message="Triggered",
         details={"info": "trigger"},
-        timestamp="2023-01-01T12:00:00",
+        timestamp=datetime.utcnow(),
+    )
+    # Mock the relationship
+    alert.definition = AlertDefinition(
+        id=did,
+        project_id=pid,
+        name="Test Rule",
+        alert_type="threshold",
+        severity="warning",
+        is_active=True,
+        conditions={"threshold": 10.0},
     )
 
     def query_side_effect(model):

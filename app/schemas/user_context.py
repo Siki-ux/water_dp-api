@@ -68,17 +68,19 @@ class ProjectBase(PydanticBase):
 
 
 class ProjectCreate(ProjectBase):
-    pass
+    authorization_provider_group_id: Optional[str] = None
 
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
+    authorization_provider_group_id: Optional[str] = None
 
 
 class ProjectResponse(ProjectBase):
     id: UUID
     owner_id: str
+    authorization_provider_group_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -107,8 +109,19 @@ class SensorDetail(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
-    location: SensorLocation
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     status: str
-    last_update: Optional[datetime] = None
+    last_activity: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     latest_data: List[SensorDataPoint] = []
     station_type: str = "unknown"
+    properties: Dict[str, Any] = {}
+
+
+class SensorCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    description: Optional[str] = None
+    lat: float
+    lng: float
+    station_type: Optional[str] = "unknown"

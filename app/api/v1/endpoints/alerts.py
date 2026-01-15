@@ -50,6 +50,7 @@ class AlertRead(BaseModel):
     details: Optional[Dict[str, Any]] = None
     acknowledged_by: Optional[str] = None
     acknowledged_at: Optional[datetime] = None
+    definition: AlertDefinitionRead  # Include nested details
 
     class ConfigDict:
         from_attributes = True
@@ -105,6 +106,50 @@ def create_alert_definition(
     return db_def
 
 
+class AlertDefinitionUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    conditions: Optional[Dict[str, Any]] = None
+    severity: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@router.put("/definitions/{definition_id}", response_model=AlertDefinitionRead)
+def update_alert_definition(
+    definition_id: UUID4,
+    update_data: AlertDefinitionUpdate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(deps.get_current_user),
+):
+    """
+    Update an alert definition.
+    """
+    db_def = (
+        db.query(AlertDefinition).filter(AlertDefinition.id == definition_id).first()
+    )
+    if not db_def:
+        raise HTTPException(status_code=404, detail="Alert definition not found")
+
+    ProjectService._check_access(
+        db, db_def.project_id, current_user, required_role="editor"
+    )
+
+    if update_data.name is not None:
+        db_def.name = update_data.name
+    if update_data.description is not None:
+        db_def.description = update_data.description
+    if update_data.conditions is not None:
+        db_def.conditions = update_data.conditions
+    if update_data.severity is not None:
+        db_def.severity = update_data.severity
+    if update_data.is_active is not None:
+        db_def.is_active = update_data.is_active
+
+    db.commit()
+    db.refresh(db_def)
+    return db_def
+
+
 @router.delete("/definitions/{definition_id}")
 def delete_alert_definition(
     definition_id: UUID4,
@@ -132,6 +177,7 @@ def delete_alert_definition(
 @router.get("/history/{project_id}", response_model=List[AlertRead])
 def get_alert_history(
     project_id: UUID4,
+    status: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(deps.get_current_user),
     limit: int = 100,
@@ -142,14 +188,16 @@ def get_alert_history(
     ProjectService._check_access(db, project_id, current_user, required_role="viewer")
 
     # Join with definition to filter by project
-    alerts = (
+    query = (
         db.query(Alert)
         .join(AlertDefinition)
         .filter(AlertDefinition.project_id == project_id)
-        .order_by(Alert.timestamp.desc())
-        .limit(limit)
-        .all()
     )
+
+    if status:
+        query = query.filter(Alert.status == status)
+
+    alerts = query.order_by(Alert.timestamp.desc()).limit(limit).all()
     return alerts
 
 

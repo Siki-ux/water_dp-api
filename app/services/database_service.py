@@ -251,7 +251,8 @@ class DatabaseService:
                         "id": str(row[0]),  # Ensure ID is string (handle int/str IDs)
                         "name": row[1],
                         "description": row[2],
-                        "location": {"lat": row[4], "lng": row[3]},
+                        "latitude": row[4],
+                        "longitude": row[3],
                     }
                 )
 
@@ -279,22 +280,7 @@ class DatabaseService:
             # Check layer exists
             self.get_geo_layer(layer_name)
 
-            query = text(
-                """
-                SELECT ST_Extent(geometry) as bbox
-                FROM geo_features
-                WHERE layer_id = :layer_name
-            """
-            )
-            result = self.db.execute(query, {"layer_name": layer_name}).fetchone()
-
-            if result and result[0]:
-                # ST_Extent returns a BOX2D string like "BOX(12.09 48.55,18.86 51.06)"
-                # We need to parse it or use ST_XMin, etc.
-                # Cleaner: ST_XMin(ST_Extent(geometry)), etc.
-                pass
-
-            # Revised query for cleaner output
+            # Query for cleaner output using ST_XMin, ST_YMin, etc.
             query = text(
                 """
                 SELECT

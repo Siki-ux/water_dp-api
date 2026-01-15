@@ -12,8 +12,7 @@ services:
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
       TS_TUNE_MEMORY: "512MB"
       TS_TUNE_NUM_CPUS: "2"
-    ports:
-      - "5432:5432"
+    # Removed public port 5432 exposure for security
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d water_data" ]
       interval: 5s
@@ -30,8 +29,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: water_dp_redis
-    ports:
-      - "6379:6379"
+    # Removed public port 6379 exposure for security
     volumes:
       - redis_data:/data
     networks:
@@ -44,9 +42,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${OBJECT_STORAGE_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${OBJECT_STORAGE_ROOT_PASSWORD:-minioadmin}
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+    # Removed public port 9000/9001 exposure for security
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
@@ -61,7 +57,8 @@ services:
       - GEOSERVER_ADMIN_PASSWORD=${GEOSERVER_ADMIN_PASSWORD:-geoserver}
       - GEOSERVER_ADMIN_USER=${GEOSERVER_ADMIN_USER:-admin}
       - GEOSERVER_DATA_DIR=/opt/geoserver/data_dir
-      - JAVA_OPTS=-Xms512m -Xmx1024m
+      - ALLOW_CORS=true
+      - JAVA_OPTS=-Xms512m -Xmx1024m -DGEOSERVER_CSRF_DISABLED=true
     ports:
       - "8080:8080"
     volumes:
@@ -72,8 +69,8 @@ services:
       test: "curl --fail http://localhost:8080/geoserver/web/ || exit 1"
       interval: 10s
       timeout: 10s
-      retries: 15
-      start_period: 90s
+      retries: 30
+      start_period: 120s
     depends_on:
       postgres:
         condition: service_healthy
@@ -88,7 +85,7 @@ services:
       - SEEDING=true
       - VERSION=1.0.0
       - API_PREFIX=/api/v1
-      - CORS_ORIGINS=["http://localhost:3000","http://localhost:3001","http://localhost:8080"]
+      - CORS_ORIGINS=["http://localhost","http://localhost:80","http://localhost:3000","http://localhost:3001","http://localhost:8080","http://localhost:8081","http://localhost:8082","http://localhost:8000","http://localhost:8002","http://hydro-portal.westeurope.cloudapp.azure.com","http://hydro-portal.westeurope.cloudapp.azure.com:8000","http://hydro-portal.westeurope.cloudapp.azure.com:3001","http://water-data-platform.westeurope.cloudapp.azure.com:3001"]
       - DATABASE_URL=postgresql://${DATABASE_USER:-postgres}:${DATABASE_PASSWORD:-postgres}@postgres:5432/water_data
       - DATABASE_POOL_SIZE=10
       - DATABASE_MAX_OVERFLOW=20
@@ -105,6 +102,7 @@ services:
       - ACCESS_TOKEN_EXPIRE_MINUTES=30
       - LOG_LEVEL=INFO
       - KEYCLOAK_URL=http://keycloak:8080
+      - KEYCLOAK_EXTERNAL_URL=${KEYCLOAK_EXTERNAL_URL:-http://${PUBLIC_HOSTNAME:-localhost}:8081}
       - KEYCLOAK_ADMIN_USERNAME=${KEYCLOAK_ADMIN:-admin}
       - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:-admin}
       - FROST_URL=http://frost:8080/FROST-Server/v1.1
@@ -113,9 +111,9 @@ services:
     healthcheck:
       test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
       interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 60s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
     depends_on:
       postgres:
         condition: service_healthy
@@ -127,7 +125,7 @@ services:
       - ./app:/app/app
     networks:
       - water_dp_network
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level debug
 
   # Celery Worker
   worker:
@@ -157,9 +155,14 @@ services:
     command: python -m app.core.simulator
     environment:
       - FROST_URL=http://frost:8080/FROST-Server/v1.1
+      - DATABASE_URL=postgresql://${DATABASE_USER:-postgres}:${DATABASE_PASSWORD:-postgres}@postgres:5432/water_data
     depends_on:
       frost:
         condition: service_started
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
     networks:
       - water_dp_network
 
@@ -176,6 +179,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - ./mosquitto.conf:/etc/mosquitto/mosquitto.conf:ro
     networks:
       - water_dp_network
 
@@ -187,9 +192,17 @@ services:
       - timeio.env
     environment:
       - JAVA_OPTS=-Xms256m -Xmx768m
+      - KC_BOOTSTRAP_ADMIN_USERNAME=${KEYCLOAK_ADMIN:-admin}
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      - KC_HOSTNAME_STRICT_HTTPS=false
+      - KC_HTTP_ENABLED=true
+      - KC_HOSTNAME_STRICT=false
+      # - KC_HOSTNAME=${PUBLIC_HOSTNAME:-localhost}
+      # - KC_HOSTNAME_URL=${KEYCLOAK_EXTERNAL_URL:-http://localhost:8081}
+      # - KC_HOSTNAME_ADMIN_URL=${KEYCLOAK_EXTERNAL_URL:-http://localhost:8081}
     volumes:
       - ./keycloak/import:/opt/keycloak/data/import
-    command: start-dev --import-realm --http-port 8080
+    command: start-dev --import-realm --http-port 8080 --hostname-strict=false --http-enabled=true
     ports:
       # External port 8081 maps to internal Keycloak port 8080
       - "8081:8080"
@@ -201,9 +214,23 @@ services:
     healthcheck:
       test: [ "CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080" ]
       interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 20s
+      timeout: 10s
+      retries: 60
+      start_period: 60s
+
+  # Automation service to disable Keycloak SSL requirement on fresh setup
+  keycloak-setup:
+    image: quay.io/keycloak/keycloak:26.4
+    container_name: timeio_keycloak_setup
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    volumes:
+      - ./scripts/setup_keycloak.sh:/opt/keycloak/setup_keycloak.sh
+    networks:
+      - water_dp_network
+    entrypoint: /bin/bash
+    command: /opt/keycloak/setup_keycloak.sh
 
   # FROST (SensorThings API)
   frost:
@@ -240,13 +267,14 @@ services:
       - "8002:8002"
     environment:
       - API_PREFIX=/api
-      - OIDC_URL=http://keycloak:8080
+      - CONF_URL=http://keycloak:8080/realms/timeio/.well-known/openid-configuration
+      - OIDC_CONF_URL=http://keycloak:8080/realms/timeio/.well-known/openid-configuration
       - OIDC_REALM=timeio
       - OIDC_CLIENT_ID=timeIO-client
-      - OIDC_ALLOWED_ISSUERS=["http://localhost:8081/realms/timeio","http://keycloak:8080/realms/timeio"]
+      - OIDC_ALLOWED_ISSUERS=["http://localhost:8081/realms/timeio","http://keycloak:8080/realms/timeio","http://${PUBLIC_HOSTNAME}:8081/realms/timeio","http://hydro-portal.westeurope.cloudapp.azure.com:8081/realms/timeio"]
       - OIDC_ALLOWED_AUDIENCES=["timeIO-client","account"]
       - ALLOWED_VOS=UFZ-TSM
-      - DB_URL=postgresql://postgres:postgres@postgres/water_data
+      - DB_URL=postgresql://postgres:${DATABASE_PASSWORD:-postgres}@postgres/water_data
       - DB_SCHEMA=public
     depends_on:
       postgres:
@@ -271,7 +299,7 @@ services:
       - FLYWAY_BASELINE_VERSION=0
     command: -connectRetries=60 migrate
     volumes:
-      - ../thing-management/backend/flyway/migrations:/flyway/sql
+      - ./alembic/versions:/flyway/sql
     depends_on:
       postgres:
         condition: service_healthy
@@ -285,7 +313,7 @@ services:
     env_file:
       - timeio.env
     environment:
-      - DB_URL=postgresql://postgres:postgres@postgres/water_data
+      - DB_URL=postgresql://postgres:${DATABASE_PASSWORD:-postgres}@postgres/water_data
       - DB_SCHEMA=public
     command: python /app/seed_thing_management.py
     volumes:
@@ -310,13 +338,13 @@ services:
     environment:
       - APP_PORT=8080
       - API_URL=/api
-      - APP_URL=http://localhost:8082
-      - OIDC_URL=http://localhost:8081
+      - APP_URL=http://${PUBLIC_HOSTNAME:-localhost}:8082
+      - OIDC_URL=${KEYCLOAK_EXTERNAL_URL:-http://${PUBLIC_HOSTNAME:-localhost}:8081}
       - OIDC_REALM=timeio
       - OIDC_CLIENT_ID=timeIO-client
-      - OIDC_REDIRECT_URL=http://localhost:8082/login/callback
+      - OIDC_REDIRECT_URL=http://${PUBLIC_HOSTNAME:-localhost}:8082/login/callback
       - OIDC_SCOPES=openid profile email
-      - OIDC_POST_LOGOUT_URL=http://localhost:8082/login
+      - OIDC_POST_LOGOUT_URL=http://${PUBLIC_HOSTNAME:-localhost}:8082/login
     ports:
       - "8082:80"
     depends_on:

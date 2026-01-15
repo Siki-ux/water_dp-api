@@ -593,6 +593,7 @@ def seed_data(db: Session) -> None:
                 name="Demo Project",
                 description="A sample project showing water levels.",
                 owner_id=DEMO_USER_ID,
+                authorization_provider_group_id="UFZ-TSM:MyProject",
             )
             db.add(project)
             db.commit()
@@ -652,23 +653,6 @@ def seed_data(db: Session) -> None:
 
         if not db.query(Dashboard).filter(Dashboard.project_id == project.id).first():
             # Create Dashboard using project.id
-            logger.info("Seeding Demo Dashboard...")
-            dashboard = Dashboard(
-                project_id=project.id,
-                name="Water Levels Overview",
-                is_public=True,
-                layout_config={"layout": "grid"},
-                widgets=[
-                    {
-                        "type": "chart",
-                        "title": "Main River Level",
-                        "sensor_id": "STATION_1",
-                    },
-                    {"type": "map", "title": "Region Map"},
-                ],
-            )
-            db.add(dashboard)
-            db.commit()
             logger.info("Seeding Demo Dashboard...")
             dashboard = Dashboard(
                 project_id=project.id,
@@ -760,7 +744,6 @@ def seed_data(db: Session) -> None:
         # PART 4: Advanced Scenarios & Simulator Setup
         # -------------------------------------------------------------------------
         logger.info("[SEEDING] Starting Part 4: Advanced Scenarios & Simulator")
-        seed_advanced_logic(db)
         seed_advanced_logic(db)
         seed_simulator_entities()  # Ensure simulator entities are seeded if needed
 

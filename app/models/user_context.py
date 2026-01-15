@@ -43,6 +43,12 @@ class Project(Base, BaseModel):
     # Keycloak User ID (Subject) - String or UUID depending on Keycloak config, usually UUID string
     owner_id = Column(String(255), nullable=False, index=True)
 
+    # Additional properties (e.g. external IDs)
+    properties = Column(JSONB, nullable=True)
+
+    # Keycloak Group mapping for authorization
+    authorization_provider_group_id = Column(String(255), nullable=True, index=True)
+
     # Relationships
     dashboards = relationship(
         "Dashboard", back_populates="project", cascade="all, delete-orphan"

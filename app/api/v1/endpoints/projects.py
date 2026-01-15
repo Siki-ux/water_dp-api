@@ -1,5 +1,6 @@
 import logging
-from typing import Any, List
+from datetime import datetime
+from typing import Any, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -17,9 +18,9 @@ from app.schemas.user_context import (
     ProjectResponse,
     ProjectSensorResponse,
     ProjectUpdate,
+    SensorCreate,
     SensorDataPoint,
     SensorDetail,
-    SensorLocation,
 )
 from app.services.dashboard_service import DashboardService
 from app.services.project_service import ProjectService
@@ -68,7 +69,7 @@ def update_project(
     db: Session = Depends(get_db),
     current_user: dict = Depends(deps.get_current_user),
 ) -> Any:
-    """Update project details."""
+    # Need to import ProjectUpdate schema if not available, but it should be in user_context
     return ProjectService.update_project(db, project_id, project_in, current_user)
 
 
@@ -171,7 +172,6 @@ def list_project_sensors(
 
     results = []
 
-    # Optimization: Multi-threaded or Batch fetch in future. Loop for now.
     for sid in sensor_ids:
         try:
             # Get Station (Thing)
@@ -179,15 +179,11 @@ def list_project_sensors(
             if not station:
                 continue
 
-            # Get Latest Data
-            # Use 'frost_id' (original string) if available, falling back to 'id' (hashed int)
-            frost_id = station.get("frost_id") or station.get("id")
-            latest_data_raw = ts_service.get_latest_data(frost_id)
+            # Consolidate ID
+            real_id = str(station.get("id"))
 
-            # Form Response
-            loc = SensorLocation(
-                lat=station.get("latitude") or 0.0, lng=station.get("longitude") or 0.0
-            )
+            # Get Latest Data using consolidated ID
+            latest_data_raw = ts_service.get_latest_data(real_id)
 
             # Map latest data
             data_points = []
@@ -210,18 +206,19 @@ def list_project_sensors(
 
             results.append(
                 SensorDetail(
-                    id=str(
-                        station.get("id")
-                    ),  # Return the internal Integer ID (as string "1")
+                    id=real_id,
                     name=station.get("name") or "Unknown Sensor",
                     description=station.get("description"),
-                    location=loc,
-                    status=station.get(
-                        "status", "active"
-                    ),  # Default to active if unknown
-                    last_update=last_timestamp,
+                    latitude=station.get("latitude"),
+                    longitude=station.get("longitude"),
+                    status=station.get("status", "active"),
+                    last_activity=last_timestamp,
+                    updated_at=station.get("updated_at")
+                    or last_timestamp
+                    or datetime.now(),
                     latest_data=data_points,
                     station_type=station.get("station_type", "unknown"),
+                    properties=station.get("properties", {}),
                 )
             )
 
@@ -232,15 +229,41 @@ def list_project_sensors(
     return results
 
 
-@router.post("/{project_id}/sensors", response_model=ProjectSensorResponse)
-def add_project_sensor(
+@router.get("/{project_id}/available-sensors", response_model=List[Any])
+def get_available_sensors(
     project_id: UUID,
-    sensor_id: str = Query(..., description="TimeIO Thing ID"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(deps.get_current_user),
 ) -> Any:
-    """Add a sensor to the project."""
-    return ProjectService.add_sensor(db, project_id, sensor_id, current_user)
+    """List sensors available in FROST that are NOT linked to this project."""
+    return ProjectService.get_available_sensors(db, project_id, current_user)
+
+
+@router.post("/{project_id}/sensors", response_model=ProjectSensorResponse)
+def add_project_sensor(
+    project_id: UUID,
+    sensor_id: Optional[str] = Query(None, description="TimeIO Thing ID"),
+    sensor_data: Optional[SensorCreate] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Add a sensor to the project.
+
+    - If `sensor_id` is provided: Links an existing sensor.
+    - If `sensor_data` is provided: Creates a new sensor and links it.
+    """
+    if sensor_id:
+        return ProjectService.add_sensor(db, project_id, sensor_id, current_user)
+    elif sensor_data:
+        return ProjectService.create_and_link_sensor(
+            db, project_id, sensor_data, current_user
+        )
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Must provide either sensor_id (to link) or body (to create).",
+        )
 
 
 @router.delete("/{project_id}/sensors/{sensor_id}")
