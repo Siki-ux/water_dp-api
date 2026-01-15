@@ -157,13 +157,27 @@ def test_get_alert_history(client, mock_db_session: Session):
 
     pid = uuid.uuid4()
 
+    from datetime import datetime
+
+    aid = uuid.uuid4()
+    did = uuid.uuid4()
     alert = Alert(
-        id=uuid.uuid4(),
-        definition_id=uuid.uuid4(),  # doesn't matter for mock return
+        id=aid,
+        definition_id=did,
         status="active",
         message="Triggered",
         details={"info": "trigger"},
-        timestamp="2023-01-01T12:00:00",
+        timestamp=datetime.utcnow(),
+    )
+    # Mock the relationship
+    alert.definition = AlertDefinition(
+        id=did,
+        project_id=pid,
+        name="Test Rule",
+        alert_type="threshold",
+        severity="warning",
+        is_active=True,
+        conditions={"threshold": 10.0},
     )
 
     def query_side_effect(model):

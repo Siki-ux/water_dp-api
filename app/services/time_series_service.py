@@ -353,7 +353,9 @@ class TimeSeriesService:
             logger.error(f"Error processing delete_station for {station_id}: {e}")
             raise
 
-    def create_project_thing(self, name: str, description: str, project_id: str) -> Optional[str]:
+    def create_project_thing(
+        self, name: str, description: str, project_id: str
+    ) -> Optional[str]:
         """Create a Thing representing a Project in FROST."""
         payload = {
             "name": name,
@@ -361,22 +363,25 @@ class TimeSeriesService:
             "properties": {
                 "type": "project",
                 "project_id": str(project_id),
-                "status": "active"
-            }
+                "status": "active",
+            },
         }
         url = f"{self._get_frost_url()}/Things"
         try:
-             resp = requests.post(url, json=payload, timeout=self._get_timeout())
-             if resp.status_code == 201:
-                 loc = resp.headers.get("Location")
-                 if loc:
-                     # Parse ID from location URL: .../Things(123) or .../Things('123')
-                     import re
-                     # match (numbers) or ('string')
-                     m = re.search(r"Things\((.+)\)", loc)
-                     if m:
-                         return m.group(1).strip("'")
-             logger.error(f"Failed to create project thing: {resp.status_code} - {resp.text}")
+            resp = requests.post(url, json=payload, timeout=self._get_timeout())
+            if resp.status_code == 201:
+                loc = resp.headers.get("Location")
+                if loc:
+                    # Parse ID from location URL: .../Things(123) or .../Things('123')
+                    import re
+
+                    # match (numbers) or ('string')
+                    m = re.search(r"Things\((.+)\)", loc)
+                    if m:
+                        return m.group(1).strip("'")
+            logger.error(
+                f"Failed to create project thing: {resp.status_code} - {resp.text}"
+            )
         except Exception as e:
             logger.error(f"Error creating project thing: {e}")
         return None
@@ -386,37 +391,32 @@ class TimeSeriesService:
         payload = {
             "name": data.name,
             "description": data.description or "",
-            "properties": {
-                "station_type": data.station_type,
-                "status": "active"
-            },
+            "properties": {"station_type": data.station_type, "status": "active"},
             "Locations": [
                 {
                     "name": "Location",
                     "encodingType": "application/vnd.geo+json",
-                    "location": {
-                        "type": "Point",
-                        "coordinates": [data.lng, data.lat]
-                    }
+                    "location": {"type": "Point", "coordinates": [data.lng, data.lat]},
                 }
-            ]
+            ],
         }
         url = f"{self._get_frost_url()}/Things"
         try:
-             resp = requests.post(url, json=payload, timeout=self._get_timeout())
-             if resp.status_code == 201:
-                 loc = resp.headers.get("Location")
-                 if loc:
-                     import re
-                     m = re.search(r"Things\((.+)\)", loc)
-                     if m:
-                         return m.group(1).strip("'")
-             logger.error(f"Failed to create sensor thing: {resp.status_code} - {resp.text}")
+            resp = requests.post(url, json=payload, timeout=self._get_timeout())
+            if resp.status_code == 201:
+                loc = resp.headers.get("Location")
+                if loc:
+                    import re
+
+                    m = re.search(r"Things\((.+)\)", loc)
+                    if m:
+                        return m.group(1).strip("'")
+            logger.error(
+                f"Failed to create sensor thing: {resp.status_code} - {resp.text}"
+            )
         except Exception as e:
             logger.error(f"Error creating sensor thing: {e}")
         return None
-
-
 
     # --- Metadata (Datastreams) ---
     def get_time_series_metadata(
@@ -680,7 +680,7 @@ class TimeSeriesService:
 
         return count
 
-    def create_data_point(self, data_point) -> Dict:
+    def create_data_point(self, station_id: str, data_point) -> Dict:
         """Create a new data point (Observation) in FROST."""
 
         # Determine Datastream Name: DS_{station_id}_{parameter}
@@ -690,13 +690,17 @@ class TimeSeriesService:
             if hasattr(data_point.parameter, "value")
             else data_point.parameter
         )
-        datastream_name = f"DS_{data_point.station_id}_{param_val}"
+        datastream_name = f"DS_{station_id}_{param_val}"
 
         # Find Datastream ID
         url = f"{self._get_frost_url()}/Datastreams"
         escaped_ds_name = self._escape_odata_string(datastream_name)
         # Expand Thing to get its ID for Alert Evaluation
-        params = {"$filter": f"name eq '{escaped_ds_name}'", "$select": "id", "$expand": "Thing"}
+        params = {
+            "$filter": f"name eq '{escaped_ds_name}'",
+            "$select": "id",
+            "$expand": "Thing",
+        }
 
         try:
             resp = requests.get(url, params=params, timeout=self._get_timeout())
@@ -749,6 +753,7 @@ class TimeSeriesService:
                 try:
                     # Parse ID from Location header: .../Observations(123)
                     import re
+
                     m = re.search(r"Observations\((.+)\)", loc)
                     if m:
                         new_id = m.group(1).strip("'")
@@ -760,16 +765,16 @@ class TimeSeriesService:
             # Trigger Alert Evaluation
             try:
                 from app.services.alert_evaluator import AlertEvaluator
+
                 evaluator = AlertEvaluator(self.db)
                 # Pass the internal Thing ID if available, otherwise fallback to station_id string
-                target_id = str(thing_id) if thing_id else str(data_point.station_id)
+                target_id = str(thing_id) if thing_id else str(station_id)
                 evaluator.evaluate_sensor_data(target_id, data_point.value, param_val)
             except Exception as e:
                 logger.error(f"Failed to trigger alert evaluation: {e}")
 
             return {
                 "id": new_id,
-                "station_id": data_point.station_id,
                 "timestamp": data_point.timestamp,
                 "parameter": data_point.parameter,
                 "value": data_point.value,
@@ -862,7 +867,6 @@ class TimeSeriesService:
                         results.append(
                             {
                                 "id": str(obs.get("@iot.id")),
-                                "station_id": station_id,
                                 "timestamp": t,
                                 "parameter": param_slug,
                                 "value": obs.get("result"),
@@ -1172,16 +1176,16 @@ class TimeSeriesService:
         end_time: Optional[datetime],
     ) -> Dict:
         """Get aggregated statistics for a station."""
-        
+
         # 1. Get all Datastreams for the station
         url = f"{self._get_frost_url()}/Datastreams"
-        
+
         # Handle ID quoting
         if isinstance(station_id, str) and not station_id.isdigit():
-             safe_id = self._escape_odata_string(station_id)
-             filter_str = f"Thing/id eq '{safe_id}'"
+            safe_id = self._escape_odata_string(station_id)
+            filter_str = f"Thing/id eq '{safe_id}'"
         else:
-             filter_str = f"Thing/id eq {station_id}"
+            filter_str = f"Thing/id eq {station_id}"
 
         params = {"$filter": filter_str, "$expand": "ObservedProperty"}
 
@@ -1200,32 +1204,37 @@ class TimeSeriesService:
         total_measurements = 0
         global_min = None
         global_max = None
-        
+
         # Date filters
         time_filter = ""
         if start_time or end_time:
             filters = []
             if start_time:
                 s_iso = start_time.isoformat()
-                if not s_iso.endswith("Z") and "+" not in s_iso: s_iso += "Z"
+                if not s_iso.endswith("Z") and "+" not in s_iso:
+                    s_iso += "Z"
                 filters.append(f"phenomenonTime ge {s_iso}")
             if end_time:
                 e_iso = end_time.isoformat()
-                if not e_iso.endswith("Z") and "+" not in e_iso: e_iso += "Z"
+                if not e_iso.endswith("Z") and "+" not in e_iso:
+                    e_iso += "Z"
                 filters.append(f"phenomenonTime le {e_iso}")
             time_filter = " and ".join(filters)
 
         for ds in datastreams:
             ds_id = ds.get("@iot.id")
-            if not ds_id: continue
+            if not ds_id:
+                continue
 
             # Determine ID for URL (quote if string)
             if isinstance(ds_id, str) and not str(ds_id).isdigit():
                 safe_ds_id = f"'{ds_id}'"
             else:
                 safe_ds_id = ds_id
-            
-            obs_base_url = f"{self._get_frost_url()}/Datastreams({safe_ds_id})/Observations"
+
+            obs_base_url = (
+                f"{self._get_frost_url()}/Datastreams({safe_ds_id})/Observations"
+            )
 
             # 2. Get Count
             try:
@@ -1233,22 +1242,28 @@ class TimeSeriesService:
                 count_params = {"$count": "true", "$top": 0}
                 if time_filter:
                     count_params["$filter"] = time_filter
-                
-                c_resp = requests.get(obs_base_url, params=count_params, timeout=self._get_timeout())
+
+                c_resp = requests.get(
+                    obs_base_url, params=count_params, timeout=self._get_timeout()
+                )
                 if c_resp.status_code == 200:
                     data = c_resp.json()
-                    ds_count = data.get("@iot.count", 0) # Standard OGC SensorThings uses @iot.count
+                    ds_count = data.get(
+                        "@iot.count", 0
+                    )  # Standard OGC SensorThings uses @iot.count
                     total_measurements += ds_count
             except Exception as e:
-                 logger.warning(f"Failed to get count for DS {ds_id}: {e}")
+                logger.warning(f"Failed to get count for DS {ds_id}: {e}")
 
             # 3. Get Min (OrderBy Result Asc, Top 1)
             try:
                 min_params = {"$orderby": "result asc", "$top": 1, "$select": "result"}
                 if time_filter:
                     min_params["$filter"] = time_filter
-                
-                min_resp = requests.get(obs_base_url, params=min_params, timeout=self._get_timeout())
+
+                min_resp = requests.get(
+                    obs_base_url, params=min_params, timeout=self._get_timeout()
+                )
                 if min_resp.status_code == 200:
                     vals = min_resp.json().get("value", [])
                     if vals:
@@ -1264,8 +1279,10 @@ class TimeSeriesService:
                 max_params = {"$orderby": "result desc", "$top": 1, "$select": "result"}
                 if time_filter:
                     max_params["$filter"] = time_filter
-                
-                max_resp = requests.get(obs_base_url, params=max_params, timeout=self._get_timeout())
+
+                max_resp = requests.get(
+                    obs_base_url, params=max_params, timeout=self._get_timeout()
+                )
                 if max_resp.status_code == 200:
                     vals = max_resp.json().get("value", [])
                     if vals:
@@ -1277,18 +1294,17 @@ class TimeSeriesService:
                 logger.warning(f"Failed to get max for DS {ds_id}: {e}")
 
         return {
-            "station_id": station_id,
+            "id": station_id,
             "total_measurements": total_measurements,
             "statistics": {
                 "min": global_min if global_min is not None else 0,
                 "max": global_max if global_max is not None else 0,
-                "count": total_measurements
+                "count": total_measurements,
             },
-            "time_range": {}, # Not calculating simplified global time range for now
-            "parameters": [], # Required by schema, returning empty for performance
-            "data_quality_summary": {} # Required by schema (note key name change)
+            "time_range": {},  # Not calculating simplified global time range for now
+            "parameters": [],  # Required by schema, returning empty for performance
+            "data_quality_summary": {},  # Required by schema (note key name change)
         }
-
 
     def detect_anomalies(self, series_id, start, end, method, threshold):
         # Fetch data

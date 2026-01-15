@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -21,7 +21,6 @@ from app.schemas.user_context import (
     SensorCreate,
     SensorDataPoint,
     SensorDetail,
-    SensorLocation,
 )
 from app.services.dashboard_service import DashboardService
 from app.services.project_service import ProjectService
@@ -110,7 +109,7 @@ def add_project_member(
     Can provide `user_id` (UUID) OR `username`.
     """
     from app.services.keycloak_service import KeycloakService
-    
+
     if member_in.username:
         # Resolve username to ID
         user = KeycloakService.get_user_by_username(member_in.username)
@@ -214,10 +213,12 @@ def list_project_sensors(
                     longitude=station.get("longitude"),
                     status=station.get("status", "active"),
                     last_activity=last_timestamp,
-                    updated_at=station.get("updated_at") or last_timestamp or datetime.now(),
+                    updated_at=station.get("updated_at")
+                    or last_timestamp
+                    or datetime.now(),
                     latest_data=data_points,
                     station_type=station.get("station_type", "unknown"),
-                    properties=station.get("properties", {})
+                    properties=station.get("properties", {}),
                 )
             )
 
@@ -248,17 +249,20 @@ def add_project_sensor(
 ) -> Any:
     """
     Add a sensor to the project.
-    
+
     - If `sensor_id` is provided: Links an existing sensor.
     - If `sensor_data` is provided: Creates a new sensor and links it.
     """
     if sensor_id:
         return ProjectService.add_sensor(db, project_id, sensor_id, current_user)
     elif sensor_data:
-        return ProjectService.create_and_link_sensor(db, project_id, sensor_data, current_user)
+        return ProjectService.create_and_link_sensor(
+            db, project_id, sensor_data, current_user
+        )
     else:
         raise HTTPException(
-            status_code=400, detail="Must provide either sensor_id (to link) or body (to create)."
+            status_code=400,
+            detail="Must provide either sensor_id (to link) or body (to create).",
         )
 
 

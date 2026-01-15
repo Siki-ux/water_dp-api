@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from celery.result import AsyncResult
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import UUID4, BaseModel
 from sqlalchemy.orm import Session
 
@@ -179,7 +179,9 @@ def run_computation(
     if module_name.endswith(".py"):
         module_name = module_name[:-3]
 
-    task = run_computation_task.delay(module_name, request.params, script_id=str(script.id))
+    task = run_computation_task.delay(
+        module_name, request.params, script_id=str(script.id)
+    )
 
     # Create Job Record
     job = ComputationJob(
@@ -226,9 +228,11 @@ def list_all_scripts(
     List scripts. If project_id provided, filter by project.
     """
     query = db.query(ComputationScript)
-    
+
     if project_id:
-        ProjectService._check_access(db, project_id, current_user, required_role="viewer")
+        ProjectService._check_access(
+            db, project_id, current_user, required_role="viewer"
+        )
         query = query.filter(ComputationScript.project_id == project_id)
     else:
         # If no project_id, maybe list all accessible?

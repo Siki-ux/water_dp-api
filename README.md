@@ -567,10 +567,6 @@ The following originally planned features have been **successfully implemented**
 
 ## Future Roadmap
 
-- [ ] **Advanced Visualization**: WebGL-powered 3D rendering for flood simulations.
-- [ ] **Multi-Tenant Isolation**: strict data separation between Projects (if required).
-- [ ] **Public API Gateway**: Rate-limited public access to specific datasets.
-
 ## Contributing
 
 1. Fork the repository

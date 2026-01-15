@@ -10,6 +10,7 @@ from app.services.time_series_service import TimeSeriesService
 
 logger = logging.getLogger(__name__)
 
+
 class ComputationContext:
     """
     Context object passed to computation scripts.
@@ -17,11 +18,7 @@ class ComputationContext:
     """
 
     def __init__(
-        self,
-        db: Session,
-        job_id: str,
-        script_id: UUID,
-        params: Dict[str, Any]
+        self, db: Session, job_id: str, script_id: UUID, params: Dict[str, Any]
     ):
         self.db = db
         self.job_id = job_id
@@ -58,7 +55,12 @@ class ComputationContext:
             logger.error(f"Context Error fetching dataset {dataset_id}: {e}")
             return {}
 
-    def alert(self, message: str, details: Optional[Dict[str, Any]] = None, severity: str = "warning"):
+    def alert(
+        self,
+        message: str,
+        details: Optional[Dict[str, Any]] = None,
+        severity: str = "warning",
+    ):
         """
         Trigger an alert from within the script.
         """
@@ -66,12 +68,12 @@ class ComputationContext:
             "message": message,
             "details": details or {},
             "severity": severity,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
         self._alerts_triggered.append(alert_data)
         logger.info(f"Script {self.script_id} triggered alert: {message}")
-        
-        # Persist immediately or queue? 
+
+        # Persist immediately or queue?
         # Ideally we persist immediately so it's recorded even if script crashes later.
         self._persist_alert(message, details, severity)
 
@@ -81,37 +83,43 @@ class ComputationContext:
         We need to find an Active AlertDefinition for this script to link it to.
         If multiple exist, we might need a specific 'rule name' or just pick the first.
         For simplicity, we look for a generic "Script Logic" definition or create a transient one?
-        
+
         Better approach: The USER defines a Rule "Flood Prediction Failure".
         The script says ctx.alert("Flood predicted!").
         We need to match this to a Definition.
-        
+
         Option A: Explicit Rule ID in params? No, too hard.
         Option B: Find ANY definition targeting this script ID.
         """
         try:
             # Find definitions that target this script
-            definitions = self.db.query(AlertDefinition).filter(
-                AlertDefinition.target_id == str(self.script_id),
-                AlertDefinition.is_active == True
-            ).all()
+            definitions = (
+                self.db.query(AlertDefinition)
+                .filter(
+                    AlertDefinition.target_id == str(self.script_id),
+                    AlertDefinition.is_active,
+                )
+                .all()
+            )
 
             if not definitions:
-                logger.warning(f"No active AlertDefinition found for script {self.script_id}. Alert not saved.")
+                logger.warning(
+                    f"No active AlertDefinition found for script {self.script_id}. Alert not saved."
+                )
                 return
 
             # For now, trigger ALL definitions associated with this script
             # Refinement: Pass a 'rule_name' to ctx.alert to match Definition.name?
             for definition in definitions:
-                 # Logic to filter by severity could go here
-                 new_alert = Alert(
-                     definition_id=definition.id,
-                     message=message,
-                     details=details,
-                     timestamp=datetime.utcnow(),
-                     status="active"
-                 )
-                 self.db.add(new_alert)
+                # Logic to filter by severity could go here
+                new_alert = Alert(
+                    definition_id=definition.id,
+                    message=message,
+                    details=details,
+                    timestamp=datetime.utcnow(),
+                    status="active",
+                )
+                self.db.add(new_alert)
             self.db.commit()
 
         except Exception as e:

@@ -123,4 +123,3 @@ class SensorCreate(BaseModel):
     lat: float
     lng: float
     station_type: Optional[str] = "unknown"
-

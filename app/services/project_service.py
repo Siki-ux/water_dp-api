@@ -16,7 +16,6 @@ from app.schemas.user_context import (
     SensorCreate,
 )
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -95,14 +94,15 @@ class ProjectService:
             name=project_in.name, description=project_in.description, owner_id=user_id
         )
         db.add(db_project)
-        db.flush() # Get ID
+        db.flush()  # Get ID
 
         # External Integrations
         props = {}
-        
+
         # 1. Keycloak Group
         try:
             from app.services.keycloak_service import KeycloakService
+
             # Sanitize name for group?
             group_name = f"project-{project_in.name}"
             # Check if exists or randomness?
@@ -116,11 +116,12 @@ class ProjectService:
         # 2. TimeIO (FROST) Project Thing
         try:
             from app.services.time_series_service import TimeSeriesService
+
             ts_service = TimeSeriesService(db)
             thing_id = ts_service.create_project_thing(
                 name=project_in.name,
                 description=project_in.description or "",
-                project_id=str(db_project.id)
+                project_id=str(db_project.id),
             )
             if thing_id:
                 props["timeio_thing_id"] = thing_id
@@ -237,19 +238,21 @@ class ProjectService:
     ):
         # Access check handled in add_sensor, but good to check early
         ProjectService._check_access(db, project_id, user, required_role="editor")
-        
+
         from app.services.time_series_service import TimeSeriesService
+
         ts_service = TimeSeriesService(db)
-        
+
         # Create Thing in FROST
         thing_id = ts_service.create_sensor_thing(sensor_data)
-        
+
         if not thing_id:
-            raise HTTPException(status_code=500, detail="Failed to create sensor in TimeIO")
-            
+            raise HTTPException(
+                status_code=500, detail="Failed to create sensor in TimeIO"
+            )
+
         # Link
         return ProjectService.add_sensor(db, project_id, thing_id, user)
-
 
     @staticmethod
     def remove_sensor(
@@ -278,27 +281,31 @@ class ProjectService:
         return [str(r) for r in result]
 
     @staticmethod
-    def get_available_sensors(db: Session, project_id: UUID, user: Dict[str, Any]) -> List[Dict]:
+    def get_available_sensors(
+        db: Session, project_id: UUID, user: Dict[str, Any]
+    ) -> List[Dict]:
         """List sensors available in FROST that are NOT linked to this project."""
         ProjectService._check_access(db, project_id, user, required_role="viewer")
-        
+
         # 1. Get linked sensor IDs
         linked_ids = ProjectService.list_sensors(db, project_id, user)
-        
+
         # 2. Get all sensors from TS service
         from app.services.time_series_service import TimeSeriesService
+
         ts_service = TimeSeriesService(db)
-        
-        all_stations = ts_service.get_stations(limit=1000) # Get a large batch
-        
+
+        all_stations = ts_service.get_stations(limit=1000)  # Get a large batch
+
         # 3. Filter
         # Note: ts_service maps thing/@iot.id to 'id' (string).
         # Project link stores the original @iot.id (as a string) in sensor_id.
         available = [
-            s for s in all_stations 
+            s
+            for s in all_stations
             if str(s.get("id")) not in [str(lid) for lid in linked_ids]
         ]
-        
+
         return available
 
     # --- Member Management ---

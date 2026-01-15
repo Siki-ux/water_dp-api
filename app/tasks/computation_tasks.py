@@ -5,12 +5,15 @@ from app.core.celery_app import celery_app
 
 
 @celery_app.task(bind=True)
-def run_computation_task(self, script_filename: str, params: dict, script_id: str = None):
-    from app.core.database import SessionLocal
-    from app.computations.context import ComputationContext
-    from app.models.computations import ComputationScript, ComputationJob
+def run_computation_task(
+    self, script_filename: str, params: dict, script_id: str = None
+):
     import uuid
-    
+
+    from app.computations.context import ComputationContext
+    from app.core.database import SessionLocal
+    from app.models.computations import ComputationScript
+
     db = SessionLocal()
     try:
         # Script path
@@ -39,12 +42,16 @@ def run_computation_task(self, script_filename: str, params: dict, script_id: st
                 resolved_script_id = uuid.UUID(str(script_id))
             except ValueError:
                 pass
-        
+
         if not resolved_script_id:
             # Fallback to DB lookup
-            script = db.query(ComputationScript).filter(ComputationScript.filename == f"{script_filename}.py").first()
+            script = (
+                db.query(ComputationScript)
+                .filter(ComputationScript.filename == f"{script_filename}.py")
+                .first()
+            )
             resolved_script_id = script.id if script else uuid.uuid4()
-        
+
         ctx = ComputationContext(db, self.request.id, resolved_script_id, params)
 
         # Execute with Context
@@ -52,22 +59,24 @@ def run_computation_task(self, script_filename: str, params: dict, script_id: st
         # We can try/except or inspect signature.
         # For backward compatibility, let's inspect.
         import inspect
+
         sig = inspect.signature(module.run)
         if len(sig.parameters) == 1:
-             # Check param name? 'ctx' vs 'params'
-             param_name = list(sig.parameters.keys())[0]
-             if param_name == 'ctx':
-                  result = module.run(ctx)
-             else:
-                  # Legacy mode
-                  result = module.run(params)
+            # Check param name? 'ctx' vs 'params'
+            param_name = list(sig.parameters.keys())[0]
+            if param_name == "ctx":
+                result = module.run(ctx)
+            else:
+                # Legacy mode
+                result = module.run(params)
         else:
-             # Assume new mode or failure
-             result = module.run(ctx)
-             
+            # Assume new mode or failure
+            result = module.run(ctx)
+
         # Post-Execution: Passive Alert Evaluation
         if isinstance(result, dict):
             from app.services.alert_evaluator import AlertEvaluator
+
             evaluator = AlertEvaluator(db)
             evaluator.evaluate_result(self.request.id, script_id, result)
 

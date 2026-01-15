@@ -247,14 +247,14 @@ class DatabaseService:
                 # Handle potential case sensitivity or type mismatch by dict access
                 # SQLAlchemy row is accessible by column name, but let's be safe
                 sensors.append(
-                {
-                    "id": str(row[0]),  # Ensure ID is string (handle int/str IDs)
-                    "name": row[1],
-                    "description": row[2],
-                    "latitude": row[4],
-                    "longitude": row[3],
-                }
-            )
+                    {
+                        "id": str(row[0]),  # Ensure ID is string (handle int/str IDs)
+                        "name": row[1],
+                        "description": row[2],
+                        "latitude": row[4],
+                        "longitude": row[3],
+                    }
+                )
 
             return sensors
 

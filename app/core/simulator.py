@@ -157,16 +157,19 @@ def run_simulator():
                         r = requests.post(f"{frost_url}/Observations", json=obs)
                         if r.status_code in [200, 201]:
                             logger.info(f"[{tname}] Pushed {val:.2f}m")
-                            
+
                             # Trigger Alert Evaluation
                             try:
                                 from app.core.database import SessionLocal
                                 from app.services.alert_evaluator import AlertEvaluator
+
                                 db = SessionLocal()
                                 try:
                                     evaluator = AlertEvaluator(db)
                                     # Use Thing ID as station_id, and hardcoded "water_level" as parameter for this sim
-                                    evaluator.evaluate_sensor_data(str(tid), val, "water_level")
+                                    evaluator.evaluate_sensor_data(
+                                        str(tid), val, "water_level"
+                                    )
                                 finally:
                                     db.close()
                             except Exception as alert_err:

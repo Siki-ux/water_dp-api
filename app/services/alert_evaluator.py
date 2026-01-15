@@ -8,6 +8,7 @@ from app.models.alerts import Alert, AlertDefinition
 
 logger = logging.getLogger(__name__)
 
+
 class AlertEvaluator:
     """
     Evaluates 'Passive' alert rules against computation results.
@@ -22,11 +23,15 @@ class AlertEvaluator:
         """
         try:
             # Find definitions targeting this script
-            definitions = self.db.query(AlertDefinition).filter(
-                AlertDefinition.target_id == str(script_id),
-                AlertDefinition.is_active == True,
-                # We could filter by alert_type="computation_result" if we differentiate types strictly
-            ).all()
+            definitions = (
+                self.db.query(AlertDefinition)
+                .filter(
+                    AlertDefinition.target_id == str(script_id),
+                    AlertDefinition.is_active,
+                    # We could filter by alert_type="computation_result" if we differentiate types strictly
+                )
+                .all()
+            )
 
             for definition in definitions:
                 self._evaluate_definition(definition, result)
@@ -65,36 +70,27 @@ class AlertEvaluator:
                 triggered = float(actual_value) < float(threshold)
             elif operator == "==":
                 triggered = str(actual_value) == str(threshold)
-            
+
             if triggered:
                 self._create_alert(definition, actual_value)
 
         except Exception as e:
             logger.warning(f"Failed to evaluate definition {definition.id}: {e}")
 
-    def _create_alert(self, definition: AlertDefinition, value: Any):
-        from datetime import datetime
-        
-        alert = Alert(
-            definition_id=definition.id,
-            message=f"Alert '{definition.name}' triggered: {value}",
-            details={"value": value, "rule": definition.conditions},
-            timestamp=datetime.utcnow(),
-            status="active"
-        )
-        self.db.add(alert)
-        self.db.commit()
-        logger.info(f"Passive Alert Triggered: {definition.name}")
     def evaluate_sensor_data(self, station_id: str, value: Any, parameter: str):
         """
         Evaluate sensor data against threshold rules.
         """
         try:
             # Find definitions targeting this station
-            definitions = self.db.query(AlertDefinition).filter(
-                AlertDefinition.target_id == str(station_id),
-                AlertDefinition.is_active == True,
-            ).all()
+            definitions = (
+                self.db.query(AlertDefinition)
+                .filter(
+                    AlertDefinition.target_id == str(station_id),
+                    AlertDefinition.is_active,
+                )
+                .all()
+            )
 
             for definition in definitions:
                 # Match alert_type with parameter (e.g., threshold_gt vs just checking if parameter implies it)
@@ -112,11 +108,13 @@ class AlertEvaluator:
                 # Current frontend implementation is limited: it assumes One Metric per Station?
                 # Or maybe we assume the threshold applies to the *primary* metric of the sensor?
                 # Let's proceed with evaluating the value against the condition.
-                
+
                 self._evaluate_sensor_definition(definition, value)
 
         except Exception as e:
-            logger.error(f"Error evaluating sensor alerts for station {station_id}: {e}")
+            logger.error(
+                f"Error evaluating sensor alerts for station {station_id}: {e}"
+            )
 
     def _evaluate_sensor_definition(self, definition: AlertDefinition, value: Any):
         try:
@@ -129,13 +127,13 @@ class AlertEvaluator:
 
             if not operator or threshold is None:
                 return
-            
+
             # Simple Threshold Check
             triggered = False
             try:
                 val_float = float(value)
                 thresh_float = float(threshold)
-                
+
                 if operator == ">":
                     triggered = val_float > thresh_float
                 elif operator == "<":
@@ -147,31 +145,32 @@ class AlertEvaluator:
                 return
 
             if triggered:
-                 # Check if we should throttle? For now, just trigger.
-                 self._create_alert(definition, value)
+                # Check if we should throttle? For now, just trigger.
+                self._create_alert(definition, value)
 
         except Exception as e:
             logger.warning(f"Failed to evaluate sensor definition {definition.id}: {e}")
-            
+
     def _create_alert(self, definition: AlertDefinition, value: Any):
         from datetime import datetime
-        
+
         # Deduplication: Check if an active alert already exists for this definition
-        existing_active = self.db.query(Alert).filter(
-            Alert.definition_id == definition.id,
-            Alert.status == "active"
-        ).first()
+        existing_active = (
+            self.db.query(Alert)
+            .filter(Alert.definition_id == definition.id, Alert.status == "active")
+            .first()
+        )
 
         if existing_active:
             # Already active, do not spam
             return
-        
+
         alert = Alert(
             definition_id=definition.id,
             message=f"Alert '{definition.name}' triggered: {value}",
             details={"value": value, "rule": definition.conditions},
             timestamp=datetime.utcnow(),
-            status="active"
+            status="active",
         )
         self.db.add(alert)
         self.db.commit()

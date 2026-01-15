@@ -197,12 +197,7 @@ def get_alert_history(
     if status:
         query = query.filter(Alert.status == status)
 
-    alerts = (
-        query
-        .order_by(Alert.timestamp.desc())
-        .limit(limit)
-        .all()
-    )
+    alerts = query.order_by(Alert.timestamp.desc()).limit(limit).all()
     return alerts
 
 
