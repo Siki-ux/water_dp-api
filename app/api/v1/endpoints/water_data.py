@@ -92,6 +92,8 @@ async def get_data_points(
     parameter: Optional[str] = Query(None, description="Filter by parameter"),
     quality_filter: Optional[str] = Query(None, description="Filter by quality flag"),
     limit: int = Query(1000, ge=1, le=10000, description="Maximum number of records"),
+    offset: int = Query(0, ge=0, description="Number of records to skip"),
+    sort_order: str = Query("asc", pattern="^(asc|desc)$", description="Sort order"),
     db: Session = Depends(get_db),
 ):
     """Get water data points with filtering."""
@@ -119,7 +121,12 @@ async def get_data_points(
 
             # 2. Fetch Observations for this datastream
             query = TimeSeriesQuery(
-                series_id=ds_name, start_time=start_dt, end_time=end_dt, limit=limit
+                series_id=ds_name,
+                start_time=start_dt,
+                end_time=end_dt,
+                limit=limit,
+                offset=offset,
+                sort_order=sort_order,
             )
             data_points = service.get_time_series_data(query)
 
@@ -137,8 +144,8 @@ async def get_data_points(
                     param_slug = "water_level"
 
                 mapped_data = {
-                    "id": dp.id,
-                    "station_id": station_id,
+                    "id": str(dp.id),
+                    "station_id": str(station_id),
                     "timestamp": dp.timestamp,
                     "parameter": param_slug,
                     "value": dp.value,
@@ -227,7 +234,7 @@ async def create_quality_data(
 
 @router.get("/quality", response_model=List[WaterQualityResponse])
 async def get_quality_data(
-    station_id: int = Query(..., description="Station ID"),
+    station_id: str = Query(..., description="Station ID"),
     start_time: Optional[str] = Query(None, description="Start time (ISO format)"),
     end_time: Optional[str] = Query(None, description="End time (ISO format)"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of records"),

@@ -157,9 +157,14 @@ services:
     command: python -m app.core.simulator
     environment:
       - FROST_URL=http://frost:8080/FROST-Server/v1.1
+      - DATABASE_URL=postgresql://${DATABASE_USER:-postgres}:${DATABASE_PASSWORD:-postgres}@postgres:5432/water_data
     depends_on:
       frost:
         condition: service_started
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
     networks:
       - water_dp_network
 

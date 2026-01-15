@@ -107,8 +107,20 @@ class SensorDetail(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
-    location: SensorLocation
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     status: str
-    last_update: Optional[datetime] = None
+    last_activity: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     latest_data: List[SensorDataPoint] = []
     station_type: str = "unknown"
+    properties: Dict[str, Any] = {}
+
+
+class SensorCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    description: Optional[str] = None
+    lat: float
+    lng: float
+    station_type: Optional[str] = "unknown"
+

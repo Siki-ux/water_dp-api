@@ -12,14 +12,14 @@ A reliable Python backend for handling requests between databases, GeoServer, ti
 - **Time Series Processing**: Powered by **TimeIO** (Frost Server + TimescaleDB).
     - **OGC SensorThings API**: Standardized data ingestion and management.
     - **High Performance**: TimescaleDB for efficient time-series storage and querying.
-    - **Linkage**: Direct linking between Map Features (GeoServer) and Water Stations (`feature.properties.station_id`).
+    - **Linkage**: Direct linking between Map Features (GeoServer) and Water Stations (`feature.properties.id`).
     - **Data API**: Retrieve, aggregate, and interpolate hydrological data.
 - **RESTful API**: Comprehensive REST API with automatic documentation.
 - **Data Models**: Strong typing with Pydantic V2 models (Schema) and SQLAlchemy ORM (DB).
 - **Monitoring**: Built-in logging, metrics, and health checks.
 - **Docker Support**: Complete containerization with Docker Compose.
 - **Smart Data Management**: 
-    - **Smart ID Resolution**: Access sensors via internal UUIDs or original string IDs (`STATION_123`).
+- **Simplified Identification**: Consistent use of FROST `@iot.id` (String) as the primary identifier across API, database, and frontend.
     - **Auto-Provisioning**: Automatically creates Locations and Features of Interest during data import.
     - **Bulk Operations**: Efficiently import large historical datasets and delete recursively.
 - **Alerting System**:
@@ -106,7 +106,7 @@ The database is shared but logically segmented into three distinct domains. The 
 #### 1. Water DP (User Context & GIS)
 These tables manage the modern application state, user projects, and geospatial layers.
 - **projects**: The central user workspace. Linked to Keycloak users via `owner_id`.
-- **project_sensors**: A lightweight link table connecting a **Project** (UUID) to a **TimeIO Sensor** (String ID).
+- **project_sensors**: A lightweight link table connecting a **Project** (UUID) to a **TimeIO Sensor** (String ID / FROST ID).
 - **geo_layers / geo_features**: PostGIS-enabled tables for storing map configurations and geometries (polygons, points).
 - **computation_scripts / computation_jobs**: Store user-uploaded Python scripts and track the status of asynchronous Celery tasks.
 
@@ -189,9 +189,9 @@ erDiagram
 
     %% --- Domain: TimeIO / OGC (Data) ---
     THINGS {
-        bigint id PK "Internal ID"
+        string id PK "FROST ID (@iot.id)"
         string name "Unique Name"
-        json properties "Contains station_id"
+        json properties "Station metadata"
     }
     
     DATASTREAMS {
@@ -335,7 +335,7 @@ The project integrates the [TimeIO](https://helmholtz.software/software/timeio) 
 3.  **Consumption**:
     - **FastAPI**: Queries the `OBSERVATIONS` table directly (using raw SQL for performance) to provide analytics endpoints (e.g., `/statistics`, `/anomalies`).
     - **Grafana**: Connects to the same DB to visualize the raw data.
-    - **GeoServer**: Joins spatial features with sensor metadata (using `station_id`) to display real-time status on maps.
+    - **GeoServer**: Joins spatial features with sensor metadata (using `id`) to display real-time status on maps.
 
 ### Setup Details
 The entire stack is containerized in `docker-compose.yml`. Key configuration files:
@@ -450,8 +450,8 @@ poetry run python scripts/verify_api.py
 
 This script will check:
 1.  **Layer Listing**: Confirms `czech_regions` and `czech_republic` layers exist.
-2.  **Feature Retrieval**: Fetches features and checks for `station_id` property.
-3.  **Data Linkage**: Uses the linked `station_id` to fetch time series metadata and data points.
+2.  **Feature Retrieval**: Fetches features and checks for `id` property.
+3.  **Data Linkage**: Uses the linked `id` to fetch time series metadata and data points.
 
 ## Development & Testing
 

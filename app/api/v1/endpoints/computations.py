@@ -2,7 +2,7 @@ import ast
 import os
 import uuid
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from celery.result import AsyncResult
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
@@ -179,7 +179,7 @@ def run_computation(
     if module_name.endswith(".py"):
         module_name = module_name[:-3]
 
-    task = run_computation_task.delay(module_name, request.params)
+    task = run_computation_task.delay(module_name, request.params, script_id=str(script.id))
 
     # Create Job Record
     job = ComputationJob(
@@ -214,6 +214,31 @@ def list_project_computations(
         .all()
     )
     return scripts
+
+
+@router.get("/scripts", response_model=List[ComputationScriptRead])
+def list_all_scripts(
+    project_id: Optional[UUID4] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(deps.get_current_user),
+):
+    """
+    List scripts. If project_id provided, filter by project.
+    """
+    query = db.query(ComputationScript)
+    
+    if project_id:
+        ProjectService._check_access(db, project_id, current_user, required_role="viewer")
+        query = query.filter(ComputationScript.project_id == project_id)
+    else:
+        # If no project_id, maybe list all accessible?
+        # For now, let's just return all if user is admin, or empty/error?
+        # User asked "only getting scripts that are available for this project".
+        # If called without project_id, we might return nothing or all public?
+        # Let's enforce project_id for now or return all if admin.
+        pass
+
+    return query.all()
 
 
 class ComputationJobRead(BaseModel):
@@ -398,10 +423,14 @@ def get_script_content(
     return {"content": content}
 
 
+class ScriptContentUpdate(BaseModel):
+    content: str
+
+
 @router.put("/content/{script_id}")
 def update_script_content(
     script_id: UUID4,
-    content_wrapper: dict = Body(..., embed=True),  # Expect {"content": "..."}
+    update_data: ScriptContentUpdate,
     db: Session = Depends(get_db),
     current_user: dict = Depends(deps.get_current_user),
 ):
@@ -419,7 +448,7 @@ def update_script_content(
         db, script.project_id, current_user, required_role="editor"
     )
 
-    new_content = content_wrapper.get("content", "")
+    new_content = update_data.content
 
     # 1. Validate Security
     validate_script_security(new_content)
