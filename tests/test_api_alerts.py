@@ -42,7 +42,6 @@ def test_create_alert_definition(client, mock_db_session: Session):
                 if hasattr(obj, "severity") and getattr(obj, "severity", None) is None:
                     obj.severity = "warning"
 
-
         mock_db_session.add.side_effect = add_side_effect
 
         import uuid
