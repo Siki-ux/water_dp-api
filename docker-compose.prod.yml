@@ -137,6 +137,10 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - FROST_URL=http://frost:8080/FROST-Server/v1.1
+      - SECRET_KEY=${SECRET_KEY}
+      - GEOSERVER_URL=http://geoserver:8080/geoserver
+      - GEOSERVER_USERNAME=admin
+      - GEOSERVER_PASSWORD=${GEOSERVER_ADMIN_PASSWORD:-geoserver}
     depends_on:
       postgres:
         condition: service_healthy
@@ -156,6 +160,10 @@ services:
     environment:
       - FROST_URL=http://frost:8080/FROST-Server/v1.1
       - DATABASE_URL=postgresql://${DATABASE_USER:-postgres}:${DATABASE_PASSWORD:-postgres}@postgres:5432/water_data
+      - SECRET_KEY=${SECRET_KEY}
+      - GEOSERVER_URL=http://geoserver:8080/geoserver
+      - GEOSERVER_USERNAME=admin
+      - GEOSERVER_PASSWORD=${GEOSERVER_ADMIN_PASSWORD:-geoserver}
     depends_on:
       frost:
         condition: service_started
