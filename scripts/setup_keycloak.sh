@@ -7,7 +7,7 @@ sleep 20
 
 # Authentication
 echo "Authenticating with Keycloak..."
-/opt/keycloak/bin/kcadm.sh config credentials --server http://keycloak:8080 --realm master --user admin --password admin
+/opt/keycloak/bin/kcadm.sh config credentials --server http://keycloak:8080 --realm master --user ${KEYCLOAK_ADMIN} --password ${KEYCLOAK_ADMIN_PASSWORD}
 
 # Disable SSL requirement
 echo "Disabling SSL requirement..."
