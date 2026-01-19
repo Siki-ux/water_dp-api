@@ -1,604 +1,208 @@
-# Water Data Platform
+# Water Data Platform (Core Backend)
 
-A reliable Python backend for handling requests between databases, GeoServer, time data, and other services. Built with FastAPI, SQLAlchemy, and modern Python best practices.
+The **Water Data Platform** is a reliable Python backend for handling requests between databases, GeoServer, time data, and other services. It serves as the **Core Intelligence Layer** of the wider Water Ecosystem.
 
-## Features
+## 🔗 Component Repositories
 
-- **Database Management**: PostgreSQL with PostGIS support for geospatial data.
-- **GeoServer Integration**: Full integration with GeoServer for geospatial services (Layers & Features).
-    - **Dynamic BBOX Filtering**: Efficiently load only visible map features.
-    - **Single-Item Retrieval**: Fetch individual layers and features by ID.
-    - **WMS/WFS Support**: Direct integration with standard OGC services.
-- **Time Series Processing**: Powered by **TimeIO** (Frost Server + TimescaleDB).
-    - **OGC SensorThings API**: Standardized data ingestion and management.
-    - **High Performance**: TimescaleDB for efficient time-series storage and querying.
-    - **Linkage**: Direct linking between Map Features (GeoServer) and Water Stations (`feature.properties.id`).
-    - **Data API**: Retrieve, aggregate, and interpolate hydrological data.
-- **RESTful API**: Comprehensive REST API with automatic documentation.
-- **Data Models**: Strong typing with Pydantic V2 models (Schema) and SQLAlchemy ORM (DB).
-- **Monitoring**: Built-in logging, metrics, and health checks.
-- **Docker Support**: Complete containerization with Docker Compose.
-- **Smart Data Management**: 
-- **Simplified Identification**: Consistent use of FROST `@iot.id` (String) as the primary identifier across API, database, and frontend.
-    - **Auto-Provisioning**: Automatically creates Locations and Features of Interest during data import.
-    - **Bulk Operations**: Efficiently import large historical datasets and delete recursively.
-- **Alerting System**:
-    - **Rule Management**: Define custom thresholds and conditions for parameters.
-    - **Monitoring**: Real-time or scheduled checks on incoming data.
-    - **History**: Full audit trail of triggered alerts.
+*   **Core Backend (API)**: [https://github.com/Siki-ux/water_dp-api](https://github.com/Siki-ux/water_dp-api)
+*   **Geospatial Stack**: [https://github.com/Siki-ux/water_dp-geo](https://github.com/Siki-ux/water_dp-geo)
+*   **TimeIO Stack**: [https://github.com/Siki-ux/water_dp-timeio](https://github.com/Siki-ux/water_dp-timeio)
+*   **Frontend Portal**: [https://github.com/Siki-ux/water_dp-hydro_portal](https://github.com/Siki-ux/water_dp-hydro_portal)
 
-## Architecture
+## 🏗️ Ecosystem Architecture
 
-The platform follows a modern microservices-inspired architecture:
-
-### Project Structure
-```
-water_dp/
-├── app/
-│   ├── api/                 # API endpoints (Geospatial, Time Series, Water Data)
-│   │   └── v1/
-│   │       └── endpoints/
-│   │           ├── bulk.py          # Bulk import endpoints
-│   │           └── computations.py   # Computation execution endpoints
-│   ├── core/               # Core functionality (Config, DB, Logging, Seeding, Security)
-│   │   └── celery_app.py   # Celery application configuration
-│   ├── models/             # SQLAlchemy Database models
-│   │   └── computations.py # ComputationScript & ComputationJob models
-│   ├── schemas/            # Pydantic validation schemas
-│   ├── services/           # Business logic
-│   │   ├── database_service.py    # CRUD for all entities
-│   │   ├── geoserver_service.py   # GeoServer interaction
-│   │   └── time_series_service.py # TimeIO integration
-│   ├── tasks/              # Celery background tasks
-│   │   ├── import_tasks.py        # Bulk import tasks
-│   │   └── computation_tasks.py   # Computation execution tasks
-│   ├── computations/       # Python scripts for heavy computation
-│   └── main.py            # FastAPI application entry point
-├── tests/                 # Unit and integration tests
-│   ├── test_services/     # Service layer tests
-│   ├── integration/       # Integration tests
-│   ├── test_api_bulk.py # API tests for bulk import
-│   ├── test_api_computations.py # API tests for computations
-│   └── conftest.py        # Test configuration
-├── scripts/               # Utility scripts (Verification, Seeding)
-├── keycloak/             # Keycloak realm configuration
-├── grafana/              # Grafana provisioning
-├── alembic/              # Database migrations
-├── pyproject.toml        # Poetry dependencies and config
-├── docker-compose.yml    # Docker services orchestration
-├── Dockerfile           # Application container definition
-└── README.md            # This file
-```
-
-### 1. Data Layer
-- **PostgreSQL with Extensions**: The central database:
-    - **PostGIS**: Geospatial data (rivers, regions, boundaries)
-    - **TimescaleDB**: Time-series data (high-volume sensor readings)
-- **MinIO**: S3-compatible object storage (component of TimeIO stack)
-- **Redis**: Caching and message broker
-
-### 2. TimeIO Stack (Sensor Data)
-- **Frost Server**: Implements the OGC SensorThings API standards
-    - **Role**: Ingestion point for all sensor data
-    - **Flow**: `Sensors -> Frost API (HTTP/MQTT) -> TimescaleDB`
-- **Thing Management**: UI and API for managing Things, Sensors, and Datastreams
-- **Keycloak**: IAM for securing TimeIO services
-- **MQTT Broker**: Real-time message bus for sensor data ingestion
-
-### 3. Application Layer
-- **FastAPI Backend (Water DP)**:
-    - **Role**: Main application logic, serving the frontend and orchestrating data.
-    - **Security**: Protected by **Keycloak** (JWT Bearer Token authentication).
-    - **Integration**: Queries TimescaleDB directly for analytics (anomaly detection) and lists metadata from the database.
-- **GeoServer**:
-    - **Role**: Serves geospatial maps (WMS/WFS)
-    - **Integration**: Connects to PostGIS tables in PostgreSQL to serve vector layers (e.g., rivers, regions)
-
-### 4. Visualization
-- **Grafana**:
-    - **Role**: Interactive dashboards for time-series data
-    - **Integration**: Connects directly to TimescaleDB to visualize seeded `OBSERVATIONS`
-
-### 5. Database Schema
-
-The database is shared but logically segmented into three distinct domains. The usage of this hybrid schema allows us to separate **Application Logic** from **Data Ingestion** and **High-Volume Storage**.
-
-#### 1. Water DP (User Context & GIS)
-These tables manage the modern application state, user projects, and geospatial layers.
-- **projects**: The central user workspace. Linked to Keycloak users via `owner_id`.
-- **project_sensors**: A lightweight link table connecting a **Project** (UUID) to a **TimeIO Sensor** (String ID / FROST ID).
-- **geo_layers / geo_features**: PostGIS-enabled tables for storing map configurations and geometries (polygons, points).
-- **computation_scripts / computation_jobs**: Store user-uploaded Python scripts and track the status of asynchronous Celery tasks.
-
-#### 2. Thing Management (Ingestion Config)
-These legacy tables are used by the **Thing Management API** to configure how data enters the system.
-- **project_tbl** (Legacy): The "backend" view of a project. Used to group database credentials.
-- **mqtt / database**: Stores credentials for the ingestion services (MQTT Broker, Timescale Writer).
-
-#### 3. TimeIO / OGC (Sensor Data)
-These tables implement the **OGC SensorThings API** standard and are managed by the **Frost Server**.
-- **THINGS**: Represents the physical or virtual station.
-- **DATASTREAMS**: A stream of data (e.g., "Water Level") associated with a Thing.
-- **OBSERVATIONS**: The actual time-series data points (Timestamp + Value), stored in **TimescaleDB** hypertables for performance.
-
-```mermaid
-erDiagram
-    %% --- Domain: Water DP (Application) ---
-    PROJECTS {
-        uuid id PK "New Project ID"
-        string name
-        string owner_id "Keycloak User ID"
-    }
-    
-    DASHBOARDS {
-        uuid id PK
-        uuid project_id FK
-        json layout_config
-    }
-    
-    COMPUTATION_SCRIPTS {
-        uuid id PK
-        uuid project_id FK
-        string name
-        string filename
-    }
-
-    COMPUTATION_JOBS {
-        string id PK "Celery Task ID"
-        uuid script_id FK
-        string status
-        string result
-        string logs
-    }
-
-    ALERT_DEFINITIONS {
-        uuid id PK
-        uuid project_id FK
-        string name
-        string condition_type
-        float threshold
-    }
-
-    ALERTS {
-        uuid id PK
-        uuid definition_id FK
-        datetime alert_time
-        string status
-    }
-    
-    PROJECT_SENSORS {
-        uuid project_id PK, FK
-        string sensor_id PK "TimeIO String ID"
-    }
-
-    GEO_LAYERS ||--o{ GEO_FEATURES : contains
-
-    %% --- Domain: Thing Management (Ingestion) ---
-    PROJECT_TBL {
-        int id PK "Legacy ID"
-        uuid uuid "Sync ID"
-        string name
-    }
-    
-    MQTT_CONFIG {
-        int id PK
-        int project_id FK
-        string topic
-        string user
-    }
-
-    %% --- Domain: TimeIO / OGC (Data) ---
-    THINGS {
-        string id PK "FROST ID (@iot.id)"
-        string name "Unique Name"
-        json properties "Station metadata"
-    }
-    
-    DATASTREAMS {
-        bigint id PK
-        bigint thing_id FK
-    }
-    
-    OBSERVATIONS {
-        bigint id PK
-        bigint datastream_id FK
-        timestamp phenomenonTime
-        double result
-    }
-
-    %% --- Relationships ---
-    
-    %% App User Context
-    PROJECTS ||--o{ DASHBOARDS : contains
-    PROJECTS ||--o{ PROJECT_SENSORS : links_to
-    PROJECTS ||--o{ ALERT_DEFINITIONS : defines
-    
-    %% Computations
-    COMPUTATION_SCRIPTS ||--o{ COMPUTATION_JOBS : executes
-
-    %% Alerts
-    ALERT_DEFINITIONS ||--o{ ALERTS : triggers
-    
-    %% Logical Link: App -> TimeIO
-    PROJECT_SENSORS }|..|| THINGS : "Refers to (by Name/Prop)"
-
-    %% Ingestion Config
-    PROJECT_TBL ||--o{ MQTT_CONFIG : owns
-
-    %% OGC Hierarchy
-    THINGS ||--o{ DATASTREAMS : has
-    DATASTREAMS ||--o{ OBSERVATIONS : contains
-```
-
-### System Architecture Diagram
+The platform is designed as a modular ecosystem consisting of four independent stacks communicating over a shared Docker network (`water_shared_net`).
 
 ```mermaid
 graph TB
-    subgraph "Client Layer"
-        User[User/Client]
-        Frontend[Frontend App]
+    subgraph "Water Ecosystem (water_shared_net)"
+        direction TB
+        
+        subgraph "Frontend (water_dp-hydro_portal)"
+            Portal[Hydro Portal<br/>Next.js]
+        end
+
+        subgraph "Backend (water_dp-api)"
+            API[Water DP API<br/>FastAPI]
+            Worker[Celery Worker]
+            DB[(App DB<br/>PostgreSQL)]
+            Redis[(Redis)]
+        end
+
+        subgraph "Geospatial (water_dp-geo)"
+            GeoServer[GeoServer]
+            PostGIS[(Geo DB<br/>PostGIS)]
+        end
+
+        subgraph "Time Series (water_dp-timeio)"
+            Frost[FROST Server<br/>SensorThings API]
+            TimeDB[(TimeIO DB<br/>TimescaleDB)]
+            MQTT[MQTT Broker]
+            Keycloak[Keycloak<br/>IAM]
+        end
     end
-    
-    subgraph "Application Layer"
-        API[FastAPI Backend<br/>Water DP]
-        Worker[Celery Worker<br/>Async Tasks]
-        GeoServer[GeoServer<br/>WMS/WFS]
-        Grafana[Grafana<br/>Dashboards]
-        ThingMgmt[Thing Management<br/>UI]
-    end
-    
-    subgraph "TimeIO Stack"
-        Frost[Frost Server<br/>OGC SensorThings API]
-        MQTT[MQTT Broker<br/>Mosquitto]
-        Keycloak[Keycloak<br/>IAM]
-    end
-    
-    subgraph "Data Layer"
-        DB[(PostgreSQL<br/>+ PostGIS<br/>+ TimescaleDB)]
-        Redis[(Redis<br/>Cache & Queue)]
-        MinIO[(MinIO<br/>Object Storage)]
-    end
-    
-    subgraph "Data Sources"
-        Sensors[IoT Sensors<br/>Water Stations]
-    end
-    
-    %% User connections
-    User --> API
-    User --> GeoServer
-    User --> Grafana
-    User --> ThingMgmt
-    Frontend --> API
-    Frontend --> GeoServer
-    
-    %% Application layer connections
-    API -->|Read/Write| DB
-    API -->|Cache/Queue| Redis
-    Worker -->|Consume Tasks| Redis
-    Worker -->|Read/Write| DB
-    Worker -->|Run Scripts| Computations[Computation Scripts]
-    GeoServer -->|Read Geo Data<br/>PostGIS| DB
-    Grafana -->|Read Time Series<br/>TimescaleDB| DB
-    ThingMgmt -->|Manage Things| Frost
-    
-    %% TimeIO connections
-    Frost -->|Persist| DB
-    Frost -->|Metadata| MinIO
-    Frost -.->|Authenticate| Keycloak
-    ThingMgmt -.->|Authenticate| Keycloak
-    
-    %% Sensor data flow
-    Sensors -->|HTTP/MQTT| MQTT
-    MQTT --> Frost
-    Sensors -->|HTTP| Frost
+
+    %% Connections
+    Portal --> API
+    Portal --> GeoServer
+    API --> DB
+    API --> Worker
+    API --> Frost
+    API --> GeoServer
+    Worker --> Frost
+    GeoServer --> PostGIS
+    Frost --> TimeDB
+    Frost --> MQTT
+    Portal -.-> Keycloak
+    API -.-> Keycloak
 ```
 
-## TimeIO & Frontend Architecture Strategy
-*(Added Jan 2026)*
+## ✨ Features
 
-To accelerate development and leverage existing robust tools, we have adopted a **"Microservice UI Composition"** strategy for Device Management.
+- **Database Management**: PostgreSQL with PostGIS support for geospatial data (Projects, Users, Computed Data).
+- **GeoServer Integration**: 
+    - Full integration with the sibling **Geospatial Stack**.
+    - **Dynamic BBOX Filtering**: Efficiently load only visible map features.
+    - **WMS/WFS Support**: Proxies and manages standard OGC services.
+- **Time Series Processing**: 
+    - Integration with the **TimeIO Stack** (FROST Server + TimescaleDB).
+    - **OGC SensorThings API**: Standardized data ingestion.
+    - **High Performance**: Direct querying of TimescaleDB for massive datasets.
+- **Computation Engine**:
+    - **Async Workers**: Run Python/R/Julia scripts in the background via Celery.
+    - **Job Tracking**: Full history of computation jobs and logs.
+- **Alerting System**:
+    - Real-time monitoring of sensor data against user-defined rules.
+- **Unified Identity**:
+    - Integrated with **Keycloak** for Single Sign-On (SSO) across Frontend, Backend, and TimeIO.
 
-### Decision
-Instead of rebuilding complex device management interfaces (Parser config, Access Policies, Metadata editing) in the `hydro_portal`, we **reuse** the existing [TimeIO Thing Management](https://helmholtz.software/software/timeio) UI.
+---
 
-### Integration Workflow
-1.  **Device Provisioning**: Performed in **TimeIO TM** (`http://localhost:8082`).
-    *   Admins create Things, Datastreams, and Parsers here.
-2.  **Visualization & Projects**: Performed in **Hydro Portal** (`http://localhost:3000`).
-    *   Users **"Link"** existing TimeIO Things to their Projects instead of creating them from scratch.
-    *   Hydro Portal focuses purely on Dashboards, Maps, and Analytics.
-3.  **Single Sign-On (SSO)**:
-    *   Both applications share the same **Keycloak** Identity Provider.
-    *   Users seamlessly switch between "Dashboards" (Hydro Portal) and "Device Settings" (TimeIO TM) without re-authenticating.
-
-### Implementation Details
-*   **Frontend**: `hydro_portal` removes "Create Sensor" forms in favor of a "Link Sensor" modal (listing things from `GET /things`).
-*   **Navigation**: "Manage Devices" links in Hydro Portal redirect to TimeIO TM.
-*   **Keycloak Client**: The `timeIO-client` is configured to allow redirects to both `http://localhost:3000` and `http://localhost:8082`.
-
-
-## TimeIO Integration
-### Why TimeIO?
-The project integrates the [TimeIO](https://helmholtz.software/software/timeio) stack to provide a robust, standardized, and scalable solution for handling sensor data.
-1.  **Standardization**: Uses the **OGC SensorThings API** (via Frost Server) for data ingestion. This ensures interoperability and a clear schema for Things, Sensors, and Observations.
-2.  **Scalability**: Leverages **TimescaleDB** (PostgreSQL extension) for efficient storage and querying of high-frequency time-series data.
-3.  **Separation of Concerns**: Decouples data ingestion (IoT devices -> Frost) from application logic (FastAPI -> DB), allowing independent scaling.
-
-### Data Flow
-1.  **Ingestion**: 
-    - IoT devices or scripts (e.g., `seed_timeio.py`) send data to the **Frost Server** via HTTP or MQTT.
-    - Frost validates the data against the OGC model.
-2.  **Persistence**:
-    - Frost persists the data into **TimescaleDB** (`OBSERVATIONS` table).
-    - It handles efficient partitioning and indexing automatically.
-    - **MinIO** is used for object storage if needed (e.g., large metadata).
-3.  **Consumption**:
-    - **FastAPI**: Queries the `OBSERVATIONS` table directly (using raw SQL for performance) to provide analytics endpoints (e.g., `/statistics`, `/anomalies`).
-    - **Grafana**: Connects to the same DB to visualize the raw data.
-    - **GeoServer**: Joins spatial features with sensor metadata (using `id`) to display real-time status on maps.
-
-### Setup Details
-The entire stack is containerized in `docker-compose.yml`. Key configuration files:
-- `.env`: General application secrets.
-- `timeio.env`: Specific configuration for the TimeIO microservices (Auth, DB, MQTT).
-    - *Tip*: Use `timeio.env.example` as a template.
-- `init.sql`: Ensures `timescaledb` and `postgis` extensions are enabled on startup.
-
-## Security Considerations
-
-> [!WARNING]
-> This repository contains default configurations intended for **local development only**.
-
-### 1. Default Credentials
-The `timeio.env.example` and `timeio-realm.json` files contain default passwords (e.g., `admin/admin`). **These must be changed before deploying to any production environment.**
-
-### 2. CORS and Redirect URIs
-- **CORS**: `CORS_ORIGINS` defaults to `*` to facilitate local development. In production, set this to the specific domain(s) of your frontend application in `.env`.
-- **Keycloak Redirects**: The default Keycloak configuration allows redirects to localhost ports (8000, 8080, 8082, 3000). Ensure `scripts/configure_keycloak_realm.py` or your realm configuration is updated to reflect your actual production domains and ports.
-
-### 3. Hardcoded Credentials & Roles
-The system is seeded with default users and roles (e.g., in `scripts/configure_keycloak_realm.py`) for ease of development. 
-
-> [!CRITICAL]
-> **Production Safety**: You **MUST** modify these hardcoded users, passwords, and role assignments before deploying to any production environment. The default `admin-siki` and `frontendbus` users provide extensive access that would be dangerous if left unchanged.
-
-### 4. Sensor Discovery & Sharing (Trusted Gateway Pattern)
-The platform is designed as a **Trusted Research/Internal Workspace**, which influences the sensor security model:
-
-*   **Open Discovery**: Any authenticated user can "discover" and list *all* available sensors within the underlying TimeIO infrastructure. This is by design, treating sensors as shared public infrastructure (e.g., widely used River Gauges).
-*   **Permissive Linking**: There is currently no strict "Sensor Ownership" enforcement at the Project level. Any user can link any available sensor to their project to view its data.
-*   **Project Privacy**: While sensors are public, **Projects are Private**. User A cannot view User B’s Project dashboard, analysis, or computed data.
-*   **Production Note**: If multi-tenant isolation is required (where User A cannot even *see* User B's sensors), the `link_sensor` API would need to enforce ownership checks against the TimeIO Management API.
-
-## Quick Start
+## 🚀 Quick Start
 
 ### Prerequisites
+*   Docker & Docker Compose
+*   Git
+*   Poetry (for local development)
 
-- Docker & Docker Compose
-- (Optional) Python 3.11+ for local script execution
+### 1. Network Setup
+To enable the ecosystem to function, all stacks must share the same project name.
+Ensure your `.env` contains:
+```ini
+COMPOSE_PROJECT_NAME=water_ecosystem
+```
 
-### Installation & Run
+### 2. Start the Ecosystem
+You can start the independent stacks in any order.
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd water_dp
-   ```
-   
-2. **Set up environment**
-   ```bash
-   # Copy environment templates
-   cp env.example .env
-   cp timeio.env.example timeio.env
-   
-   # Edit .env and timeio.env if needed.
-   # NOTE: timeio.env configures the entire TimeIO stack (DB, Auth, MQTT).
-
-   > [!IMPORTANT]
-   > The `timeio.env.example` file contains default credentials (e.g., `admin/admin`) for development convenience.
-   > **YOU MUST CHANGE THESE CREDENTIALS IN `timeio.env` BEFORE DEPLOYING TO A PRODUCTION ENVIRONMENT.**
-   > Failure to do so will create significant security vulnerabilities.
-   ```
-
-3. **Start all services with Docker**
-   ```bash
-   docker-compose up -d --build
-   ```
-   This will start a comprehensive stack:
-   - **Infrastructure**: TimescaleDB (5432), MinIO, MQTT Broker (1883), Keycloak (8081).
-   - **TimeIO**: Frost API (8083), Thing Management (8082).
-   - **Application**: GeoServer (8080), FastAPI (8000), Grafana (3000).
-
-4. **Seed Data (Important)**
-   To populate the system with initial data (Things, Sensors, Observations, GeoServer Layers), run the reset script:
-   ```bash
-   # Make sure services are up first
-   docker-compose ps
-   
-   # Run the seeder (requires poetry)
-   poetry install
-   poetry run python -m app.reset_and_seed
-   ```
-   *This script drops existing tables, re-initializes schema, and seeds standard stations and time-series data.*
-
-   **Thing Management Seeding:**
-   The `timeio_tm_seeder` service automatically runs `scripts/seed_thing_management.py` on startup. This script:
-   - Patches the Thing Management database to ensure compatibility with the API.
-   - Syncs sensors from FROST Server (e.g., `Auto-Simulated Sensor`) into Thing Management.
-   - Links "MyProject" and creates default parsers.
-   - Enables simulation for imported sensors.
-
-5. **Access the application**
-   - **API Docs**: [http://localhost:8000/api/v1/docs](http://localhost:8000/api/v1/docs)
-   - **GeoServer Admin**: [http://localhost:8080/geoserver](http://localhost:8080/geoserver) (Default: `admin` / `geoserver`)
-   - **Thing Management**: [http://localhost:8082/things](http://localhost:8082/things) (Default: `admin` / `admin` via Keycloak)
-   - **Frost API**: [http://localhost:8083/FROST-Server](http://localhost:8083/FROST-Server)
-   - **Grafana**: [http://localhost:3000/login](http://localhost:3000/login) (Default: `admin` / `admin`)
-   - **Keycloak Console**: [http://localhost:8081/admin](http://localhost:8081/admin) (Default: `admin` / `admin`)
-   
-   **Default Application Users (Development Only):**
-   - **Admin User**: `admin-siki` / `admin-password` (Full API access)
-   - **Frontend User**: `frontendbus` / `frontend-password` (Limited access)
-
-### Azure VM Deployment
-
-To deploy this platform to an Azure VM (or any cloud VPS), follow these steps to ensure networking and OIDC redirects work correctly.
-
-1.  **Export Hostname Variables**:
-    On your VM, set the public DNS or IP before starting Docker:
+1.  **Time Series & Auth** (`water_dp-timeio`):
     ```bash
-    export PUBLIC_HOSTNAME=your-vm.cloudapp.azure.com
-    export KEYCLOAK_EXTERNAL_URL=http://your-vm.cloudapp.azure.com:8081
+    cd ../water_dp-timeio && docker-compose up -d --build
     ```
-
-2.  **Align File Configuration**:
-    Ensure `docker-compose.yml` and `timeio.env` are synced with the latest changes that use `${PUBLIC_HOSTNAME}` and `${KEYCLOAK_EXTERNAL_URL}`.
-
-3.  **Start Services**:
+2.  **Geospatial** (`water_dp-geo`):
+    ```bash
+    cd ../water_dp-geo && docker-compose up -d --build
+    ```
+3.  **Backend Core** (This Repo):
     ```bash
     docker-compose up -d --build
     ```
+4.  **Frontend** (`water_dp-hydro_portal`):
+    ```bash
+    cd ../water_dp-hydro_portal && docker-compose up -d --build
+    ```
 
-4.  **Hardware Requirements**:
-    - **Minimum**: 4GB RAM (Standard_B2s)
-    - **Recommended**: 8GB RAM (Standard_B2ms)
-    - **Storage**: 30GB+ standard SSD.
+### 3. Access Points
+| Service | URL | Default Credentials |
+|:---|:---|:---|
+| **API Docs** | [http://localhost:8000/api/v1/docs](http://localhost:8000/api/v1/docs) | - |
+| **Frontend** | [http://localhost:3000](http://localhost:3000) | Login via Keycloak |
+| **GeoServer** | [http://localhost:8080/geoserver](http://localhost:8080/geoserver) | `admin` / `geoserver` |
+| **FROST API** | [http://localhost:8083/FROST-Server](http://localhost:8083/FROST-Server) | - |
+| **Keycloak** | [http://localhost:8081/admin](http://localhost:8081/admin) | `admin` / `admin` |
 
-### Verification
-To verify that the entire stack is working correctly (Layers, Features, Data Linkage, and Time Series content), run the included verification script:
+---
 
-```bash
-# Using poetry (recommended)
-poetry run python scripts/verify_api.py
+## 🛠️ Development
+
+### Project Structure
+```
+water_dp-api/
+├── app/
+│   ├── api/                 # API Endpoints
+│   ├── core/                # Config, DB, Security
+│   ├── models/              # SQLAlchemy Models
+│   ├── services/            # Business Logic (GeoServer, TimeIO adapters)
+│   ├── tasks/               # Celery Tasks
+│   └── main.py              # Application Entry
+├── scripts/                 # Utility Scripts (Seeding)
+├── alembic/                 # Database Migrations
+├── tests/                   # Pytest Suite
+└── docker-compose.yml       # Stack Definition
 ```
 
-This script will check:
-1.  **Layer Listing**: Confirms `czech_regions` and `czech_republic` layers exist.
-2.  **Feature Retrieval**: Fetches features and checks for `id` property.
-3.  **Data Linkage**: Uses the linked `id` to fetch time series metadata and data points.
+### Running Locally
+To develop the backend logic while keeping infrastructure (DB, GeoServer, FROST) in Docker:
 
-## Development & Testing
-
-This project uses **Poetry** for dependency management.
-
-### Setup
-```bash
-# Install dependencies
-poetry install
-
-# Activate shell
-poetry shell
-```
+1.  **Install Dependencies**:
+    ```bash
+    poetry install
+    ```
+2.  **Run Dev Server**:
+    ```bash
+    poetry run uvicorn app.main:app --reload
+    ```
+    *Note: Local execution uses `app/core/config.py` defaults which point to `localhost`. Docker execution uses `.env` overrides to point to container names.*
 
 ### Running Tests
-The project includes a comprehensive test suite using `pytest`.
-
-> [!NOTE]
-> Database seeding is automatically disabled during unit tests (`conftest.py` fixture) for speed.
-
+The project includes a comprehensive test suite.
 ```bash
-# Run Unit Tests (Fast, Mocked) - Default (excludes integration)
+# Run Unit Tests
 poetry run pytest
 
-# Run Integration Tests (Requires running stack)
+# Run Integration Tests
 poetry run pytest -m integration
-
-# Run Specific Test Categories (Markers)
-poetry run pytest -m api
-poetry run pytest -m services
-poetry run pytest -m core
-
-# Run Coverage Tests
-poetry run pytest tests/test_services/test_time_series_service_coverage.py
 ```
 
-### Code Structure
-- **Services**: Business logic is encapsulated in `app/services/`.
-- **Schemas**: Pydantic V2 models (`ConfigDict`, `field_validator`) in `app/schemas/`.
-- **Models**: SQLAlchemy models in `app/models/`.
+---
 
-## API Usage Guide
+## 🛡️ Security & Configuration
 
-### 1. Water Data (Stations)
-- **List Stations**: `GET /api/v1/water-data/stations` (Returns combined Geo + FROST data)
+### Environment Variables
+*   `DATABASE_URL`: Connection to local `water-dp-postgres`.
+*   `GEOSERVER_URL`: URL to the sibling GeoServer stack.
+*   `FROST_URL`: URL to the sibling TimeIO stack.
+*   `KEYCLOAK_URL`: Auth provider URL.
 
-### 2. Geospatial Data
-- **List Layers**: `GET /api/v1/geospatial/layers`
-- **Get Features (with BBOX)**: `GET /api/v1/geospatial/features?layer_name=czech_regions&bbox=12.0,48.5,18.9,51.1`
-- **Get Single Feature**: `GET /api/v1/geospatial/features/{feature_id}?layer_name=czech_regions`
+> **Note**: In Docker Mode, `GEOSERVER_URL` and `FROST_URL` are often commented out in `.env` so they resolve to the internal Docker DNS names (`water-dp-geoserver`, `timeio-frost`) automatically.
 
-### 3. Time Series Data
-- **List Series**: `GET /api/v1/time-series/metadata`
-- **Get Data**: `GET /api/v1/time-series/data?series_id={from_metadata_or_feature}`
+### Identity Management
+The platform uses Keycloak for RBAC (Role-Based Access Control).
+*   **Clients**: `timeIO-client` (Frontend), `water-dp-api` (Backend).
+*   **Roles**: `admin`, `user`, `editor`.
 
-### 4. Bulk Import
-- **Import GeoJSON**: `POST /api/v1/bulk/import/geojson` (Upload file)
-- **Import Time Series**: `POST /api/v1/bulk/import/timeseries` (Upload JSON/CSV)
-- **Check Task Status**: `GET /api/v1/bulk/tasks/{task_id}`
+---
 
-### 5. Computations
-- **Upload Script**: `POST /api/v1/computations/upload` (Requires Editor Role)
-- **Run Script**: `POST /api/v1/computations/run/{script_id}`
-- **Get Job Status**: `GET /api/v1/computations/tasks/{task_id}`
+## 📦 Database Schema
 
-## Database Migrations
+The backend manages the **Application State**, while the sibling stacks manage their own specialized data stores.
 
-This project uses **Alembic** for managing database schema changes.
+*   **Water DP DB (`water_dp-api`)**: Projects, Users, Alerts, Computation Jobs.
+*   **TimeIO DB (`water_dp-timeio`)**: Sensor Observations (TimescaleDB).
+*   **PostGIS DB (`water_dp-geo`)**: Vector Map Layers (Rivers, Watersheds).
 
-### Running Migrations
-To apply existing migrations (e.g., when pulling new code):
-```bash
-poetry run alembic upgrade head
-```
+### Relationships
+*   **Linking**: A **Project** in Water DP is linked to **Sensors** in TimeIO via the `project_sensors` table (storing the FROST `@iot.id`).
+*   **Mapping**: A **Feature** in Water DP (PostGIS) is linked to a **Sensor** via the `feature_properties` JSON, enabling map-based data discovery.
 
-### Creating Migrations
-When you modify models in `app/models/`, create a new migration script:
-```bash
-# 1. Generate revision
-poetry run alembic revision --autogenerate -m "Description of changes"
+---
 
-# 2. Review the generated file in alembic/versions/
+## 🤝 Contributing
 
-# 3. Apply the migration
-poetry run alembic upgrade head
-```
+1.  Fork the repository.
+2.  Create a feature branch (`feat/new-feature`).
+3.  Commit your changes.
+4.  Push to the branch.
+5.  Create a Pull Request.
 
-## Implemented Features (Gap Analysis Status)
-
-The following originally planned features have been **successfully implemented**:
-
-### 1. Computation & Prediction Engine
--   **Infrastructure**: Fully operational Worker Queue (Celery + Redis).
--   **Script Engine**: `ComputationScript` model allows uploading and versioning Python scripts.
--   **Execution**: Python scripts run in isolated worker processes, with full support for:
-    -   Fetching data from TimeIO/DB.
-    -   Performing calculations (e.g., Flood Risk).
-    -   Returning results and logs to the UI.
-    -   **History**: Full execution history tracking (Status, Result, Logs).
-
-### 2. Bulk Data Import
--   **GeoJSON**: Efficient import for map layers (`POST /api/v1/bulk/import/geojson`).
--   **Time Series**: High-performance CSV import for sensor data.
-
-### 3. Alerting System
--   **Rule Engine**: Define rules based on thresholds (GT/LT) or data availability.
--   **Monitoring**: Check conditions against incoming data or schedule checks.
--   **History**: Persist triggered alerts for audit and review.
-
-### 4. Security & Architecture
--   **Keycloak Integration**: Full JWT validation and Role-Based Access Control (RBAC).
--   **TimeIO Integration**: Seamless `Frost -> TimescaleDB` data flow.
-
-## Future Roadmap
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+**License**: MIT
