@@ -6,7 +6,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
@@ -27,19 +27,12 @@ async def lifespan(app: FastAPI):
     """Application lifespan events."""
     logger.info("Starting Water Data Platform API...")
 
+    # Initialize startup state
+    app.state.startup_complete = False
+
     try:
         init_db()
         logger.info("Database initialized successfully")
-
-        if settings.seeding:
-            from app.core.database import SessionLocal
-            from app.core.seeding import seed_data
-
-            db = SessionLocal()
-            try:
-                seed_data(db)
-            finally:
-                db.close()
 
         # Always register system datasources (infra discovery)
         from app.core.database import SessionLocal
@@ -50,6 +43,9 @@ async def lifespan(app: FastAPI):
             register_system_datasources(db_sys)
         finally:
             db_sys.close()
+
+        app.state.startup_complete = True
+        logger.info("Application is now fully healthy and ready.")
 
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
@@ -108,6 +104,34 @@ app = FastAPI(
 )
 
 
+@app.get("/health", tags=["General"])
+async def health_check(response: Response):
+    """
+    ## Health Check
+
+    Check the health status of the Water Data Platform API.
+
+    Returns:
+    - **200 OK**: Service is healthy and fully seeded.
+    - **503 Service Unavailable**: Service is still initializing.
+    """
+    if not getattr(app.state, "startup_complete", False):
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {
+            "status": "initializing",
+            "message": "Seeding data in progress...",
+            "app_name": settings.app_name,
+            "timestamp": time.time(),
+        }
+
+    return {
+        "status": "healthy",
+        "app_name": settings.app_name,
+        "version": settings.version,
+        "timestamp": time.time(),
+    }
+
+
 app.add_middleware(ErrorHandlingMiddleware)
 
 logger.info(f"CORS origins: {settings.cors_origins_list}")
@@ -143,23 +167,6 @@ async def log_requests(request: Request, call_next):
         logger.info(f"Response: {response.status_code} - {process_time:.3f}s")
 
     return response
-
-
-@app.get("/health", tags=["General"])
-async def health_check():
-    """
-    ## Health Check
-
-    Check the health status of the Water Data Platform API.
-
-    Returns the current status and basic system information.
-    """
-    return {
-        "status": "healthy",
-        "app_name": settings.app_name,
-        "version": settings.version,
-        "timestamp": time.time(),
-    }
 
 
 @app.get("/docs", tags=["General"])
