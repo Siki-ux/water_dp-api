@@ -1,33 +1,40 @@
-# Water Data Platform (Water Ecosystem)
+# Water Data Platform (Core Backend)
 
-The **Water Data Platform** is a modern, microservices-based ecosystem for hydrological data management, analysis, and visualization. It integrates geospatial processing (GeoServer), high-frequency time-series data (TimeIO/FROST), and a robust backend (FastAPI) into a unified system.
+The **Water Data Platform** is a reliable Python backend for handling requests between databases, GeoServer, time data, and other services. It serves as the **Core Intelligence Layer** of the wider Water Ecosystem.
 
-## 🏗️ Architecture: The Water Ecosystem
+## 🔗 Component Repositories
 
-The system is composed of **four independent stacks** that communicate over a shared Docker network (`water_shared_net`). This modular design allows each component to be developed, deployed, and scaled independently while functioning as a cohesive unit.
+*   **Core Backend (API)**: [https://github.com/Siki-ux/water_dp-api](https://github.com/Siki-ux/water_dp-api)
+*   **Geospatial Stack**: [https://github.com/Siki-ux/water_dp-geo](https://github.com/Siki-ux/water_dp-geo)
+*   **TimeIO Stack**: [https://github.com/Siki-ux/water_dp-timeio](https://github.com/Siki-ux/water_dp-timeio)
+*   **Frontend Portal**: [https://github.com/Siki-ux/water_dp-hydro_portal](https://github.com/Siki-ux/water_dp-hydro_portal)
+
+## 🏗️ Ecosystem Architecture
+
+The platform is designed as a modular ecosystem consisting of four independent stacks communicating over a shared Docker network (`water_shared_net`).
 
 ```mermaid
 graph TB
     subgraph "Water Ecosystem (water_shared_net)"
         direction TB
         
-        subgraph "Frontend Stack (hydro_portal)"
+        subgraph "Frontend (water_dp-hydro_portal)"
             Portal[Hydro Portal<br/>Next.js]
         end
 
-        subgraph "Backend Stack (water_dp)"
+        subgraph "Backend (water_dp-api)"
             API[Water DP API<br/>FastAPI]
             Worker[Celery Worker]
             DB[(App DB<br/>PostgreSQL)]
             Redis[(Redis)]
         end
 
-        subgraph "Geospatial Stack (geoserver_stack)"
+        subgraph "Geospatial (water_dp-geo)"
             GeoServer[GeoServer]
             PostGIS[(Geo DB<br/>PostGIS)]
         end
 
-        subgraph "TimeIO Stack (timeio_stack)"
+        subgraph "Time Series (water_dp-timeio)"
             Frost[FROST Server<br/>SensorThings API]
             TimeDB[(TimeIO DB<br/>TimescaleDB)]
             MQTT[MQTT Broker]
@@ -50,129 +57,145 @@ graph TB
     API -.-> Keycloak
 ```
 
-### Key Components
+## ✨ Features
 
-1.  **water_dp (Backend)**: The core logic layer. A FastAPI application handling business logic, data aggregation, computation jobs, and user management.
-2.  **timeio_stack (Sensor Data)**: A standardized OGC SensorThings API (FROST Server) backed by TimescaleDB for continuous high-frequency data ingestion and retrieval. Includes Keycloak for Identity Management.
-3.  **geoserver_stack (Maps)**: A dedicated GeoServer instance serving WMS/WFS layers for geospatial visualization (Regions, Rivers, Monitoring Stations).
-4.  **hydro_portal (Frontend)**: A modern Next.js dashboard for visualizing data, managing projects, and running computations.
+- **Database Management**: PostgreSQL with PostGIS support for geospatial data (Projects, Users, Computed Data).
+- **GeoServer Integration**: 
+    - Full integration with the sibling **Geospatial Stack**.
+    - **Dynamic BBOX Filtering**: Efficiently load only visible map features.
+    - **WMS/WFS Support**: Proxies and manages standard OGC services.
+- **Time Series Processing**: 
+    - Integration with the **TimeIO Stack** (FROST Server + TimescaleDB).
+    - **OGC SensorThings API**: Standardized data ingestion.
+    - **High Performance**: Direct querying of TimescaleDB for massive datasets.
+- **Computation Engine**:
+    - **Async Workers**: Run Python/R/Julia scripts in the background via Celery.
+    - **Job Tracking**: Full history of computation jobs and logs.
+- **Alerting System**:
+    - Real-time monitoring of sensor data against user-defined rules.
+- **Unified Identity**:
+    - Integrated with **Keycloak** for Single Sign-On (SSO) across Frontend, Backend, and TimeIO.
 
 ---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-*   **Docker Desktop** (with Docker Compose)
-*   **Git**
-*   **Poetry** (for local backend development)
+*   Docker & Docker Compose
+*   Git
+*   Poetry (for local development)
 
-### 1. Network Configuration
-To enable the "Ecosystem" mode where all stacks can talk to each other, we use a shared project name and network.
-
-**Ensure every stack has the following in its `.env` file:**
+### 1. Network Setup
+To enable the ecosystem to function, all stacks must share the same project name.
+Ensure your `.env` contains:
 ```ini
 COMPOSE_PROJECT_NAME=water_ecosystem
 ```
-*This is already configured in the provided `.env` files.*
 
-### 2. Start the Stacks
-You can start the stacks in any order. The shared network (`water_shared_net`) is managed automatically.
+### 2. Start the Ecosystem
+You can start the independent stacks in any order.
 
-#### Start Identity & Time Series (TimeIO)
-```bash
-cd timeio_stack
-docker-compose up -d --build
-```
-*Wait for Keycloak and FROST to be healthy.*
-
-#### Start Geospatial Services (GeoServer)
-```bash
-cd geoserver_stack
-docker-compose up -d --build
-```
-
-#### Start Application Backend (Water DP)
-```bash
-cd water_dp
-docker-compose up -d --build
-```
-
-#### Start Frontend (Hydro Portal)
-```bash
-cd hydro_portal
-docker-compose up -d --build
-```
+1.  **Time Series & Auth** (`water_dp-timeio`):
+    ```bash
+    cd ../water_dp-timeio && docker-compose up -d --build
+    ```
+2.  **Geospatial** (`water_dp-geo`):
+    ```bash
+    cd ../water_dp-geo && docker-compose up -d --build
+    ```
+3.  **Backend Core** (This Repo):
+    ```bash
+    docker-compose up -d --build
+    ```
+4.  **Frontend** (`water_dp-hydro_portal`):
+    ```bash
+    cd ../water_dp-hydro_portal && docker-compose up -d --build
+    ```
 
 ### 3. Access Points
 | Service | URL | Default Credentials |
 |:---|:---|:---|
-| **Frontend** | http://localhost:3000 | (Login via Keycloak) |
-| **Backend API** | http://localhost:8000/api/v1/docs | - |
-| **GeoServer** | http://localhost:8080/geoserver | admin / geoserver |
-| **FROST API** | http://localhost:8083/FROST-Server | - |
-| **Thing Mgmt** | http://localhost:8082 | - |
-| **Keycloak** | http://localhost:8081/admin | admin / admin |
-
----
-
-## ⚙️ Configuration
-
-### Environment Variables
-Each stack has its own `.env` file.
-*   **`water_dp/.env`**: Configures the API, Database URL, and inter-service URLs.
-    *   *Note*: `GEOSERVER_URL` and `FROST_URL` are commented out in `.env` to allow Docker to resolve them via internal DNS (`water-dp-geoserver`, `timeio-frost`).
-*   **`timeio_stack/.env`**: Configures PostgreSQL, Keycloak, and FROST settings.
-
-### Local Development vs Docker
-*   **Docker Mode**: When running via `docker-compose`, services communicate using container names (e.g., `http://timeio-frost:8080`).
-*   **Local Mode**: When running `uvicorn app.main:app --reload` locally, the app uses `app/core/config.py` defaults which point to `localhost` (e.g., `http://localhost:8083`).
+| **API Docs** | [http://localhost:8000/api/v1/docs](http://localhost:8000/api/v1/docs) | - |
+| **Frontend** | [http://localhost:3000](http://localhost:3000) | Login via Keycloak |
+| **GeoServer** | [http://localhost:8080/geoserver](http://localhost:8080/geoserver) | `admin` / `geoserver` |
+| **FROST API** | [http://localhost:8083/FROST-Server](http://localhost:8083/FROST-Server) | - |
+| **Keycloak** | [http://localhost:8081/admin](http://localhost:8081/admin) | `admin` / `admin` |
 
 ---
 
 ## 🛠️ Development
 
-### Python Backend (water_dp)
+### Project Structure
+```
+water_dp-api/
+├── app/
+│   ├── api/                 # API Endpoints
+│   ├── core/                # Config, DB, Security
+│   ├── models/              # SQLAlchemy Models
+│   ├── services/            # Business Logic (GeoServer, TimeIO adapters)
+│   ├── tasks/               # Celery Tasks
+│   └── main.py              # Application Entry
+├── scripts/                 # Utility Scripts (Seeding)
+├── alembic/                 # Database Migrations
+├── tests/                   # Pytest Suite
+└── docker-compose.yml       # Stack Definition
+```
 
-1.  **Install Dependencies**
+### Running Locally
+To develop the backend logic while keeping infrastructure (DB, GeoServer, FROST) in Docker:
+
+1.  **Install Dependencies**:
     ```bash
-    cd water_dp
     poetry install
     ```
-
-2.  **Run Locally**
-    Ensure dependent stacks (TimeIO, GeoServer) are running in Docker.
+2.  **Run Dev Server**:
     ```bash
-    poetry shell
-    # The config.py defaults are set for localhost access
-    uvicorn app.main:app --reload
+    poetry run uvicorn app.main:app --reload
     ```
+    *Note: Local execution uses `app/core/config.py` defaults which point to `localhost`. Docker execution uses `.env` overrides to point to container names.*
 
-3.  **Run Tests**
-    ```bash
-    poetry run pytest
-    ```
-
-4.  **Linting & Formatting**
-    ```bash
-    poetry run ruff check .
-    poetry run black .
-    ```
-
-### Database Migrations
-We use Alembic for schema changes in the Application DB (`water_app`).
+### Running Tests
+The project includes a comprehensive test suite.
 ```bash
-poetry run alembic upgrade head
+# Run Unit Tests
+poetry run pytest
+
+# Run Integration Tests
+poetry run pytest -m integration
 ```
 
 ---
 
-## 📦 Features
+## 🛡️ Security & Configuration
 
-*   **Hybrid Data Model**: Combines relational project data (PostgreSQL) with high-volume time series (TimescaleDB) and object storage (MinIO).
-*   **Geospatial Integration**: Dynamic WFS querying and filtering of sensors based on map polygons.
-*   **Computation Engine**: Async Celery workers for executing user-defined Python, R, or Julia scripts.
-*   **Bulk Import**: Specialized endpoints for ingesting massive GeoJSON and CSV datasets.
-*   **Unified Auth**: Keycloak SSO across Frontend, Backend, and Management UIs.
+### Environment Variables
+*   `DATABASE_URL`: Connection to local `water-dp-postgres`.
+*   `GEOSERVER_URL`: URL to the sibling GeoServer stack.
+*   `FROST_URL`: URL to the sibling TimeIO stack.
+*   `KEYCLOAK_URL`: Auth provider URL.
+
+> **Note**: In Docker Mode, `GEOSERVER_URL` and `FROST_URL` are often commented out in `.env` so they resolve to the internal Docker DNS names (`water-dp-geoserver`, `timeio-frost`) automatically.
+
+### Identity Management
+The platform uses Keycloak for RBAC (Role-Based Access Control).
+*   **Clients**: `timeIO-client` (Frontend), `water-dp-api` (Backend).
+*   **Roles**: `admin`, `user`, `editor`.
+
+---
+
+## 📦 Database Schema
+
+The backend manages the **Application State**, while the sibling stacks manage their own specialized data stores.
+
+*   **Water DP DB (`water_dp-api`)**: Projects, Users, Alerts, Computation Jobs.
+*   **TimeIO DB (`water_dp-timeio`)**: Sensor Observations (TimescaleDB).
+*   **PostGIS DB (`water_dp-geo`)**: Vector Map Layers (Rivers, Watersheds).
+
+### Relationships
+*   **Linking**: A **Project** in Water DP is linked to **Sensors** in TimeIO via the `project_sensors` table (storing the FROST `@iot.id`).
+*   **Mapping**: A **Feature** in Water DP (PostGIS) is linked to a **Sensor** via the `feature_properties` JSON, enabling map-based data discovery.
+
+---
 
 ## 🤝 Contributing
 
@@ -182,5 +205,4 @@ poetry run alembic upgrade head
 4.  Push to the branch.
 5.  Create a Pull Request.
 
----
 **License**: MIT
