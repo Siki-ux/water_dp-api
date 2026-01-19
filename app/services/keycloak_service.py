@@ -1,8 +1,9 @@
 import logging
 from typing import Optional
 
-from app.core.config import settings
 from keycloak import KeycloakAdmin
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 

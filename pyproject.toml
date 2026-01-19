@@ -54,6 +54,9 @@ select = ["E", "F", "I", "W"]
 ignore = []
 extend-ignore = ["E501"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["app", "scripts"]
+
 
 [tool.poetry.scripts]
 start-server = "start_server:start_server"
