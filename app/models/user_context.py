@@ -47,8 +47,11 @@ class Project(Base, BaseModel):
     properties = Column(JSONB, nullable=True)
 
     # Keycloak Group mapping for authorization
-    authorization_provider_group_id = Column(String(255), nullable=True, index=True) # Deprecated
-    authorization_group_ids = Column(JSONB, nullable=True, default=list) # List of Group IDs/Paths
+    authorization_provider_group_id = Column(String(255), nullable=True, index=True)
+    # authorization_group_ids = Column(JSONB, nullable=True, default=list) # Removed
+
+    # TimeIO Project ID
+    schema_name = Column(String(255), nullable=True, index=True)
 
     # Relationships
     dashboards = relationship(
