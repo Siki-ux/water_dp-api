@@ -1,112 +1,34 @@
 import logging
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api import deps
 from app.api.deps import get_db
-from app.models.user_context import Project
-from app.services.timeio.orchestrator_v3 import orchestrator_v3
-
-from app.services.timeio.frost_client import get_cached_frost_client
-from app.core.config import settings
-from app.services.timeio.timeio_db import TimeIODatabase
-from app.services.thing_service import ThingService
-from app.schemas.frost.thing import Thing
-from app.schemas.frost.datastream import Datastream, Observation
-
-
 from app.core.exceptions import (
-    AuthorizationException,
     ResourceNotFoundException,
-    ValidationException,
 )
+from app.models.user_context import Project
+from app.schemas.frost.datastream import Datastream, Observation
+from app.schemas.frost.thing import Thing
+from app.schemas.sensor import (
+    IngestionResponse,
+    SensorCreate,
+    SensorCreationResponse,
+)
+
+# Use async service for non-blocking FROST calls
+from app.services.async_thing_service import AsyncThingService
+from app.services.timeio.orchestrator import TimeIOOrchestrator
 
 logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
 
+orchestrator = TimeIOOrchestrator()
 
-class SensorProperty(BaseModel):
-    name: str = Field(..., description="Machine-readable name (e.g. 'temp')")
-    unit: str = Field("Unknown", description="Unit of measurement (e.g. 'Celsius')")
-    label: Optional[str] = Field(
-        None, description="Human-readable label (e.g. 'Air Temperature')"
-    )
-
-
-class SensorCreate(BaseModel):
-    project_uuid: str = Field(
-        ...,
-        description="Project UUID from water_dp-api",
-        example="1bfde64c-a785-416a-a513-6be718055ce1",
-    )
-    sensor_name: str = Field(
-        ..., description="Name of the sensor/thing", example="Station 01"
-    )
-    description: str = Field("", example="Main monitoring station at the river")
-    device_type: str = Field("chirpstack_generic", example="chirpstack_generic")
-    latitude: Optional[float] = Field(None, example=51.34)
-    longitude: Optional[float] = Field(None, example=12.37)
-    properties: Optional[List[SensorProperty]] = Field(
-        None, description="List of properties with units"
-    )
-    parser_id: Optional[int] = Field(None, description="ID of the CSV Parser to associate")
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "project_uuid": "1bfde64c-a785-416a-a513-6be718055ce1",
-                "sensor_name": "Station 01",
-                "description": "Main monitoring station at the river",
-                "device_type": "chirpstack_generic",
-                "latitude": 51.34,
-                "longitude": 12.37,
-                "properties": [
-                    {
-                        "name": "temperature", 
-                        "unit": "Celsius", 
-                        "symbol": "°C",
-                        "label": "Air Temperature"
-                    },
-                    {
-                        "name": "humidity",
-                        "unit": "Percent",
-                        "symbol": "%",
-                        "label": "Relative Humidity",
-                    },
-                ],
-            }
-        }
-    }
-
-
-class SensorLocationUpdate(BaseModel):
-    project_schema: str = Field(
-        ..., description="Project database schema (e.g. 'user_water_dp')"
-    )
-    latitude: float
-    longitude: float
-
-
-class DatastreamRich(BaseModel):
-    name: str
-    unit: str
-    label: str
-    properties: Optional[Dict[str, Any]] = None
-
-
-class SensorRich(BaseModel):
-    uuid: str
-    name: str
-    description: Optional[str] = ""
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    properties: Optional[Dict[str, Any]] = None
-    datastreams: List[DatastreamRich]
 
 @router.get(
     "/{schema_name}/all",
@@ -114,16 +36,18 @@ class SensorRich(BaseModel):
     summary="List Sensors",
     description="Returns all sensors for a project.",
 )
-async def list_sensors(schema_name: str, expand: list[str] = ["Locations","Datastreams"]):
+async def list_sensors(
+    schema_name: str, expand: list[str] = ["Locations", "Datastreams"]
+):
     """
-    Fetch all sensors for a project.
+    Fetch all sensors for a project (async).
     """
-    
-    things = ThingService.get_all_things(schema_name, expand)
-    
+    things = await AsyncThingService.get_all_things(schema_name, expand)
+
     if things is None:
         return []
     return things
+
 
 @router.get(
     "/{sensor_uuid}",
@@ -131,15 +55,17 @@ async def list_sensors(schema_name: str, expand: list[str] = ["Locations","Datas
     summary="Get Sensor Details",
     description="Fetch Sensor details from via FROST.",
 )
-async def get_thing_details(sensor_uuid: str, expand: list[str] = ["Locations","Datastreams"]):
+async def get_thing_details(
+    sensor_uuid: str, expand: list[str] = ["Locations", "Datastreams"]
+):
     """
-    Get Sensor details from via FROST.
+    Get Sensor details from via FROST (async).
     """
-    schema_name = TimeIODatabase().get_schema_from_uuid(sensor_uuid)
+    schema_name = await AsyncThingService.get_schema_from_uuid(sensor_uuid)
     if schema_name is None:
         raise ResourceNotFoundException("Schema not found")
-    thing_service = ThingService(schema_name)
-    thing = thing_service.get_thing(sensor_uuid, expand)
+    thing_service = AsyncThingService(schema_name)
+    thing = await thing_service.get_thing(sensor_uuid, expand)
     if not thing:
         raise ResourceNotFoundException("Thing not found")
     return thing
@@ -147,7 +73,7 @@ async def get_thing_details(sensor_uuid: str, expand: list[str] = ["Locations","
 
 @router.post(
     "/",
-    response_model=Dict[str, Any],
+    response_model=SensorCreationResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create Sensor (Autonomous v3)",
     description="Registers a new sensor in ConfigDB and triggers TSM workers via MQTT. Bypasses legacy APIs.",
@@ -169,20 +95,24 @@ async def create_sensor(
             location = {"latitude": sensor.latitude, "longitude": sensor.longitude}
 
         # Fetch project details for refined schema naming
-        project = database.query(Project).filter(Project.id == sensor.project_uuid).first()
+        project = (
+            database.query(Project).filter(Project.id == sensor.project_uuid).first()
+        )
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
-        result = orchestrator_v3.create_sensor(
-            project_group_id=project.authorization_provider_group_id,
+        result = orchestrator.create_sensor(
+            project_group=project.authorization_provider_group_id or project.name,
             sensor_name=sensor.sensor_name,
             description=sensor.description,
-            device_type=sensor.device_type,
-            location=location,
+            mqtt_device_type=sensor.device_type,
+            geometry=location,
             properties=(
-                [prop.dict() for prop in sensor.properties] if sensor.properties else None
+                [prop.dict() for prop in sensor.properties]
+                if sensor.properties
+                else None
             ),
-            parser_id=sensor.parser_id,
+            project_schema=project.schema_name,
         )
 
         # Automatic Link to Project
@@ -213,6 +143,7 @@ async def create_sensor(
             detail=f"Failed to create sensor: {str(error)}",
         )
 
+
 @router.get(
     "/{uuid}/datastreams",
     response_model=List[Datastream],
@@ -223,19 +154,20 @@ async def get_sensor_datastreams(
     sensor_uuid: str,
 ):
     """
-    Get datastreams for a sensor via FROST.
+    Get datastreams for a sensor via FROST (async).
     """
-    schema_name = TimeIODatabase().get_schema_from_uuid(sensor_uuid)
+    schema_name = await AsyncThingService.get_schema_from_uuid(sensor_uuid)
     if schema_name is None:
         raise ResourceNotFoundException("Schema not found")
-    thing_service = ThingService(schema_name)
-    datastreams = thing_service.get_sensor_datastreams(sensor_uuid)
+    thing_service = AsyncThingService(schema_name)
+    datastreams = await thing_service.get_sensor_datastreams(sensor_uuid)
     if not datastreams:
         return []
     return datastreams
 
+
 @router.get(
-    "/{sensor_uuid}/datastreams/{datastream_name}",
+    "/{sensor_uuid}/datastreams/{datastream_name:path}",
     response_model=Datastream,
     summary="Get Sensor Datastream (FROST)",
     description="Get datastream for a sensor via FROST.",
@@ -245,58 +177,51 @@ async def get_sensor_datastream(
     datastream_name: str,
 ):
     """
-    Get datastream for a sensor via FROST.
+    Get datastream for a sensor via FROST (async).
     """
-    schema_name = TimeIODatabase().get_schema_from_uuid(sensor_uuid)
+    schema_name = await AsyncThingService.get_schema_from_uuid(sensor_uuid)
     if schema_name is None:
         raise ResourceNotFoundException("Schema not found")
-    thing_service = ThingService(schema_name)
-    datastream = thing_service.get_sensor_datastream(sensor_uuid, datastream_name)
+    thing_service = AsyncThingService(schema_name)
+    datastream = await thing_service.get_sensor_datastream(sensor_uuid, datastream_name)
     if not datastream:
         raise ResourceNotFoundException("Datastream not found")
     return datastream
 
+
 @router.get(
-    "/{sensor_uuid}/datastream/{datastream_name}/observations",
+    "/{sensor_uuid}/datastream/{datastream_name:path}/observations",
     response_model=List[Observation],
     summary="Get Sensor Data (FROST)",
     description="Get generic time-series data for a sensor via FROST. Optionally filter by datastream name.",
 )
 async def get_sensor_observations(
-    sensor_uuid: str, 
-    datastream_name: Optional[str] = None, 
+    sensor_uuid: str,
+    datastream_name: Optional[str] = None,
     limit: int = 100,
     start_time: str = None,
     end_time: str = None,
-    order_by: str = "phenomenonTime desc",
-    select: str = "@iot.id,phenomenonTime,result,resultTime"
+    order_by: str = "resultTime desc",
+    select: str = "@iot.id,phenomenonTime,result,resultTime",
 ):
     """
-    Get generic time-series data for a sensor via FROST.
+    Get generic time-series data for a sensor via FROST (async).
     """
-    schema_name = TimeIODatabase().get_schema_from_uuid(sensor_uuid)
+    schema_name = await AsyncThingService.get_schema_from_uuid(sensor_uuid)
     if schema_name is None:
         raise ResourceNotFoundException("Schema not found")
-    thing_service = ThingService(schema_name)
-    observations = thing_service.get_observations_by_name_from_sensor_uuid(
-        sensor_uuid,
-        datastream_name,
-        start_time,
-        end_time,
-        limit,
-        order_by,
-        select
+    thing_service = AsyncThingService(schema_name)
+    observations = await thing_service.get_observations_by_name_from_sensor_uuid(
+        sensor_uuid, datastream_name, start_time, end_time, limit, order_by, select
     )
     if not observations:
         return []
     return observations
 
 
-
-
 @router.post(
     "/{uuid}/ingest/csv",
-    response_model=Dict[str, Any],
+    response_model=IngestionResponse,
     summary="Ingest CSV Data",
     description="Upload a CSV file to the Thing's S3 bucket for ingestion.",
 )
@@ -312,9 +237,3 @@ async def ingest_csv(
     from app.services.ingestion_service import IngestionService
 
     return await IngestionService.upload_csv(uuid, file)
-class DataPoint(BaseModel):
-    timestamp: Any
-    value: Any
-    datastream: Optional[str] = None
-    unit: Optional[str] = None
-

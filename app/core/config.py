@@ -40,13 +40,14 @@ class Settings(BaseSettings):
     geoserver_password: str = Field(default="geoserver", alias="GEOSERVER_PASSWORD")
     geoserver_workspace: str = Field(default="water_data", alias="GEOSERVER_WORKSPACE")
     geoserver_timeout: int = Field(default=30, alias="GEOSERVER_TIMEOUT")
+    geoserver_db_schema: str = Field(
+        default="water_dp_geo", alias="GEOSERVER_DB_SCHEMA"
+    )
 
     # Time Data Processing
     time_zone: str = Field(default="UTC", alias="TIME_ZONE")
     max_time_range_days: int = Field(default=365, alias="MAX_TIME_RANGE_DAYS")
-    frost_url: str = Field(
-        default="http://frost:8080", alias="FROST_URL"
-    )
+    frost_url: str = Field(default="http://frost:8080", alias="FROST_URL")
     frost_server: str = Field(default="sta", alias="FROST_SERVER")
     frost_version: str = Field(default="v1.1", alias="FROST_VERSION")
     frost_timeout: int = Field(default=30, alias="FROST_TIMEOUT")
@@ -115,7 +116,13 @@ class Settings(BaseSettings):
         alias="FERNET_ENCRYPTION_SECRET",
     )
 
-    model_config = {"env_file": ".env", "case_sensitive": False}
+    # MinIO Configuration
+    minio_url: str = Field(default="minio:9000", alias="MINIO_URL")
+    minio_access_key: str = Field(default="minioadmin", alias="MINIO_ACCESS_KEY")
+    minio_secret_key: str = Field(default="minioadmin", alias="MINIO_SECRET_KEY")
+    minio_secure: bool = Field(default=False, alias="MINIO_SECURE")
+
+    model_config = {"env_file": ".env", "case_sensitive": False, "extra": "ignore"}
 
     @property
     def cors_origins_list(self) -> List[str]:

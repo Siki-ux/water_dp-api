@@ -4,8 +4,8 @@ Wrapper for OGC SensorThings API interactions.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
 from functools import lru_cache
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -15,7 +15,14 @@ logger = logging.getLogger(__name__)
 class FrostClient:
     """Client for interacting with a specific Project's FROST endpoint."""
 
-    def __init__(self, base_url: str, project_name: str, version: str, frost_server: str, timeout: int = 20):
+    def __init__(
+        self,
+        base_url: str,
+        project_name: str,
+        version: str,
+        frost_server: str,
+        timeout: int = 20,
+    ):
         """
         Initialize FROST client.
 
@@ -39,11 +46,11 @@ class FrostClient:
     def _request(self, method: str, path: str, params: Dict = None) -> Any:
         url = self._url(path)
         try:
-            logger.info(f"FROST request: {method} {url} with params {params}")
+            logger.debug(f"FROST request: {method} {url} with params {params}")
             resp = self._session.request(
                 method, url, params=params, timeout=self.timeout
             )
-            logger.info(f"FROST response: {resp.status_code} {resp.text}")
+            logger.debug(f"FROST response: {resp.status_code} {resp.text}")
             resp.raise_for_status()
             return resp.json()
         except requests.exceptions.HTTPError as e:
@@ -67,7 +74,9 @@ class FrostClient:
             return []
         return data.get("value", [])
 
-    def get_datastream(self, datastream_id: Any, expand:str = "Thing") -> Optional[Dict]:
+    def get_datastream(
+        self, datastream_id: Any, expand: str = "Thing"
+    ) -> Optional[Dict]:
         """Get Datastream details."""
         path = f"Datastreams({datastream_id})"
         params = {"$expand": expand} if expand else None
@@ -77,7 +86,7 @@ class FrostClient:
             return []
         return data.get("value", [])
 
-    def get_thing(self, thing_id: Any,  expand:str = None) -> Optional[Dict]:
+    def get_thing(self, thing_id: Any, expand: str = None) -> Optional[Dict]:
         """Get Thing details."""
         params = {"$expand": expand} if expand else None
         path = f"Things({thing_id})"
@@ -86,6 +95,20 @@ class FrostClient:
             logger.error(f"No thing found for thing {thing_id}")
             return None
         return data
+
+    def update_thing(self, thing_id: Any, payload: Dict[str, Any]) -> bool:
+        """Update Thing details via PATCH."""
+        path = f"Things({thing_id})"
+        try:
+            url = self._url(path)
+            logger.debug(f"FROST update: PATCH {url} with payload {payload}")
+            resp = self._session.patch(url, json=payload, timeout=self.timeout)
+            logger.debug(f"FROST response: {resp.status_code}")
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update thing {thing_id}: {e}")
+            raise
 
     def get_observations(
         self,
@@ -120,9 +143,9 @@ class FrostClient:
             # STA supports ISO intervals too: min/max
             criteria = []
             if start_time:
-                criteria.append(f"phenomenonTime ge {start_time}")
+                criteria.append(f"resultTime ge {start_time}")
             if end_time:
-                criteria.append(f"phenomenonTime le {end_time}")
+                criteria.append(f"resultTime le {end_time}")
 
             if criteria:
                 params["$filter"] = " and ".join(criteria)
@@ -133,18 +156,20 @@ class FrostClient:
 
         return data.get("value", [])
 
-    def get_locations(self,expand: str = None) -> List[Dict[str, Any]]:
+    def get_locations(self, expand: str = None) -> List[Dict[str, Any]]:
         """
         Get all locations of a things.
         """
-        path = f"Locations"
+        path = "Locations"
         params = {"$expand": expand} if expand else None
         data = self._request("GET", path, params=params)
         if not data:
             return []
         return data.get("value", [])
 
-    def get_things(self, expand: str = None, filter: str = None, top: int = None) -> List[Dict[str, Any]]:
+    def get_things(
+        self, expand: str = None, filter: str = None, top: int = None
+    ) -> List[Dict[str, Any]]:
         """
         Get all things with optional filtering and expansion.
         """
@@ -156,17 +181,26 @@ class FrostClient:
             params["$filter"] = filter
         if top:
             params["$top"] = top
-            
+
         data = self._request("GET", path, params=params)
         if not data:
             return []
         return data.get("value", [])
 
+
 @lru_cache(maxsize=128)
-def get_cached_frost_client(base_url: str, project_name: str, version: str, frost_server: str, timeout: int = 20) -> FrostClient:
+def get_cached_frost_client(
+    base_url: str, project_name: str, version: str, frost_server: str, timeout: int = 20
+) -> FrostClient:
     """
     Returns a cached instance of FrostClient.
     Arguments must be hashable.
     """
-    logger.info(f"Creating new FrostClient for {project_name} at {base_url}")
-    return FrostClient(base_url=base_url, project_name=project_name, version=version, frost_server=frost_server, timeout=timeout)
+    logger.debug(f"Creating new FrostClient for {project_name} at {base_url}")
+    return FrostClient(
+        base_url=base_url,
+        project_name=project_name,
+        version=version,
+        frost_server=frost_server,
+        timeout=timeout,
+    )

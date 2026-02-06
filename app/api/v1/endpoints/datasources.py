@@ -19,7 +19,7 @@ router = APIRouter()
 @router.get(
     "/projects/{project_id}/datasources", response_model=List[DataSourceResponse]
 )
-def get_project_datasources(
+async def get_project_datasources(
     project_id: UUID,
     database: Session = Depends(get_db),
     user: Any = Depends(get_current_user),
@@ -35,7 +35,7 @@ def get_project_datasources(
 
 
 @router.post("/projects/{project_id}/datasources", response_model=DataSourceResponse)
-def create_datasource(
+async def create_datasource(
     project_id: UUID,
     schema: DataSourceCreate,
     database: Session = Depends(get_db),
@@ -54,7 +54,7 @@ def create_datasource(
     "/projects/{project_id}/datasources/{datasource_id}",
     response_model=DataSourceResponse,
 )
-def update_datasource(
+async def update_datasource(
     project_id: UUID,
     datasource_id: UUID,
     schema: DataSourceUpdate,
@@ -73,7 +73,7 @@ def update_datasource(
 
 
 @router.delete("/projects/{project_id}/datasources/{datasource_id}")
-def delete_datasource(
+async def delete_datasource(
     project_id: UUID,
     datasource_id: UUID,
     database: Session = Depends(get_db),
@@ -90,7 +90,7 @@ def delete_datasource(
 
 
 @router.post("/projects/{project_id}/datasources/{datasource_id}/test")
-def test_connection(
+async def test_connection(
     project_id: UUID,
     datasource_id: UUID,
     database: Session = Depends(get_db),
@@ -112,7 +112,7 @@ def test_connection(
 
 
 @router.post("/projects/{project_id}/datasources/{datasource_id}/query")
-def execute_query(
+async def execute_query(
     project_id: UUID,
     datasource_id: UUID,
     query: QueryRequest,
@@ -136,7 +136,7 @@ def execute_query(
 
 
 @router.get("/datasources/available-sensors")
-def get_available_sensors(
+async def get_available_sensors(
     database: Session = Depends(get_db),
     user: Any = Depends(get_current_user),
 ):

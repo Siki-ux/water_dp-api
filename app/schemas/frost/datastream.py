@@ -1,10 +1,13 @@
-from pydantic import BaseModel
 from typing import Optional
+
+from pydantic import BaseModel
+
 
 class UnitOfMeasurement(BaseModel):
     definition: str
     symbol: str
     label: str
+
 
 class Datastream(BaseModel):
     datastream_id: str
@@ -16,11 +19,11 @@ class Datastream(BaseModel):
     @classmethod
     def from_frost(cls, data: dict) -> "Datastream":
         properties = data.get("properties", {}) or {}
-        
+
         # Unit Logic
         # 1. Try properties.unitOfMeasurement (Custom overrides)
         uom_data = properties.get("unitOfMeasurement")
-        
+
         # 2. Fallback to root unitOfMeasurement
         if not uom_data:
             uom_data = data.get("unitOfMeasurement", {})
@@ -30,16 +33,16 @@ class Datastream(BaseModel):
         unit = UnitOfMeasurement(
             definition=uom_data.get("definition", "http://unknown"),
             symbol=uom_data.get("symbol", "?"),
-            label=uom_data.get("label") or uom_data.get("name", "Unknown")
+            label=uom_data.get("label") or uom_data.get("name", "Unknown"),
         )
 
         # IDs
         datastream_id = str(data.get("@iot.id", ""))
-        
+
         # Thing Relation
         thing_data = data.get("Thing", {})
         thing_id = str(thing_data.get("@iot.id", ""))
-        
+
         # Sensor UUID from Thing properties
         thing_props = thing_data.get("properties", {})
         sensor_uuid = thing_props.get("uuid")
@@ -49,7 +52,7 @@ class Datastream(BaseModel):
             thing_id=thing_id,
             sensor_uuid=sensor_uuid,
             name=data.get("name", "Unknown"),
-            unit_of_measurement=unit
+            unit_of_measurement=unit,
         )
 
 
@@ -61,9 +64,13 @@ class Observation(BaseModel):
 
     @classmethod
     def from_frost(cls, data: dict) -> "Observation":
+        phenom_time = data.get("phenomenonTime", "")
+        if not phenom_time:
+            phenom_time = data.get("resultTime", "")
+
         return cls(
             observation_id=str(data.get("@iot.id", "")),
-            phenomenon_time=data.get("phenomenonTime", ""),
+            phenomenon_time=phenom_time,
             result_time=data.get("resultTime", ""),
             result=data.get("result", 0.0),
         )

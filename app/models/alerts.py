@@ -22,7 +22,7 @@ class AlertDefinition(Base, BaseModel):
 
     project_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
+        ForeignKey("water_dp.projects.id", ondelete="CASCADE"),
         nullable=False,
     )
 
@@ -59,7 +59,7 @@ class Alert(Base, BaseModel):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     definition_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("alert_definitions.id", ondelete="CASCADE"),
+        ForeignKey("water_dp.alert_definitions.id", ondelete="CASCADE"),
         nullable=False,
     )
 

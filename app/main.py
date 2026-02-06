@@ -3,6 +3,7 @@ Main FastAPI application.
 """
 
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 
@@ -35,11 +36,10 @@ async def lifespan(app: FastAPI):
     app.state.startup_complete = False
 
     try:
-        # init_db()
-        # logger.info("Database initialized successfully")
-        # Migrations are handled by the entrypoint script run_migrations.py
-        # no longer calling init_db() here to avoid conflicts with Alembic
-        logger.info("Application starting (migrations assumed complete)")
+        # Ensure tables exist (create_all is idempotent - won't recreate existing tables)
+        init_db()
+        logger.info("Database initialized successfully")
+        logger.info("Application starting...")
 
         # Always register system datasources (infra discovery)
         from app.core.database import SessionLocal
@@ -64,6 +64,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
+    root_path=os.getenv("ROOT_PATH", ""),
     title=settings.app_name,
     version=settings.version,
     description=API_DESCRIPTION,
@@ -79,17 +80,20 @@ app = FastAPI(
         "name": "MIT License",
         "url": "https://opensource.org/licenses/MIT",
     },
-    servers=[
-        {"url": "http://localhost:8000", "description": "Development server"},
-        {
-            "url": "http://hydro-portal.westeurope.cloudapp.azure.com:8000",
-            "description": "Azure VM server",
-        },
-        {
-            "url": "https://api.waterdataplatform.com",
-            "description": "Production server",
-        },
-    ],
+    servers=(
+        [
+            {
+                "url": f"{os.getenv('ROOT_PATH', '')}",
+                "description": "Current Environment",
+            },
+            {"url": "http://localhost:8000", "description": "Local Development"},
+        ]
+        if os.getenv("ROOT_PATH")
+        else [
+            {"url": "http://localhost:8000", "description": "Development"},
+            {"url": "https://api.waterdataplatform.com", "description": "Production"},
+        ]
+    ),
 )
 
 

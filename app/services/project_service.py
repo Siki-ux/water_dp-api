@@ -10,18 +10,17 @@ import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-import requests
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.exceptions import (
     AuthorizationException,
     ResourceNotFoundException,
     ValidationException,
 )
 from app.models.user_context import Project, ProjectMember, project_sensors
+from app.schemas.frost.thing import Thing
 from app.schemas.user_context import (
     ProjectCreate,
     ProjectMemberCreate,
@@ -29,9 +28,7 @@ from app.schemas.user_context import (
     ProjectUpdate,
 )
 from app.services.keycloak_service import KeycloakService
-from app.services.timeio.frost_client import get_cached_frost_client
 from app.services.thing_service import ThingService
-from app.schemas.frost.thing import Thing
 
 # Import TimeIO service layer for enhanced operations
 from app.services.timeio import (
@@ -176,7 +173,8 @@ class ProjectService:
         user_id = user.get("sub")
 
         # Validate Group Membership
-        auth_group_id = project_in.authorization_provider_group_id
+        # Use resolved_group_id to support both array (frontend) and single string formats
+        auth_group_id = project_in.resolved_group_id
         schema = None
         if auth_group_id:
             # Validate: User must be a member of the group (unless admin)
@@ -222,10 +220,7 @@ class ProjectService:
                     schema_name = raw_name.split("/")[-1]
                 else:
                     schema_name = raw_name
-                logger.info(
-                    f"Resolved project name from Keycloak: {schema_name}"
-                )
-                
+                logger.info(f"Resolved project name from Keycloak: {schema_name}")
 
                 # TODO: Wont exists on first creation.
                 timeio_db = TimeIODatabase()
@@ -238,10 +233,10 @@ class ProjectService:
                         f"Project {schema_name} not found in TimeIO database"
                     )
                     schema = None
-                
 
-
-            logger.info(f"Creating project for authorization group: {auth_group_id} and schema: {schema}")
+            logger.info(
+                f"Creating project for authorization group: {auth_group_id} and schema: {schema}"
+            )
         else:
             # [STRICT GROUP MODE]
             raise ValidationException(
@@ -291,45 +286,70 @@ class ProjectService:
         user_id = str(user.get("sub"))
 
         # Collect all group/role-like claims
-        user_groups = user.get("groups", [])
-        if not isinstance(user_groups, list):
-            user_groups = [user_groups]
+        raw_groups = user.get("groups", [])
+        if not isinstance(raw_groups, list):
+            raw_groups = [raw_groups]
 
         # Add entitlements (Keycloak groups often mapped here)
         entitlements = user.get("eduperson_entitlement", [])
         if isinstance(entitlements, list):
-            user_groups.extend(entitlements)
-        else:
-            user_groups.append(entitlements)
+            raw_groups.extend(entitlements)
+        elif entitlements:
+            raw_groups.append(entitlements)
 
         # Add realm roles as fallback
         realm_roles = user.get("realm_access", {}).get("roles", [])
-        user_groups.extend(realm_roles)
+        raw_groups.extend(realm_roles)
 
-        # Sanitize: strip leading "/" and remove duplicates/None
-        sanitized_groups = []
-        for group_name in user_groups:
-            if group_name:
-                group_str = str(group_name)
-                if group_str.startswith("urn:geant:params:group:"):
-                    group_str = group_str.replace("urn:geant:params:group:", "")
-                if group_str.startswith("/"):
-                    group_str = group_str[1:]
-                sanitized_groups.append(group_str)
+        logger.info(f"Raw groups from token: {raw_groups}")
 
-        user_groups = list(set(sanitized_groups))
-        logger.info(f"User claims for filtering: {user_groups}")
+        # Sanitize and normalize groups - generate multiple formats for matching
+        sanitized_groups = set()
+        for group_name in raw_groups:
+            if not group_name:
+                continue
+            group_str = str(group_name)
+            
+            # Remove URN prefix
+            if group_str.startswith("urn:geant:params:group:"):
+                group_str = group_str.replace("urn:geant:params:group:", "")
+            
+            # Strip leading slash
+            if group_str.startswith("/"):
+                group_str = group_str[1:]
+            
+            # Add the sanitized group as-is
+            sanitized_groups.add(group_str)
+            
+            # Also add formats for hierarchical matching:
+            # /UFZ-TSM/MyProject -> UFZ-TSM:MyProject
+            if "/" in group_str:
+                colon_format = group_str.replace("/", ":")
+                sanitized_groups.add(colon_format)
+                # Also add each path component
+                parts = group_str.split("/")
+                for i in range(len(parts)):
+                    partial = "/".join(parts[:i+1])
+                    sanitized_groups.add(partial)
+                    sanitized_groups.add(partial.replace("/", ":"))
+            
+            # UFZ-TSM:MyProject -> UFZ-TSM/MyProject
+            if ":" in group_str:
+                slash_format = group_str.replace(":", "/")
+                sanitized_groups.add(slash_format)
+
+        user_groups = list(sanitized_groups)
+        logger.info(f"Sanitized user groups for filtering: {user_groups}")
 
         # Subquery for member project IDs
         member_project_ids = select(ProjectMember.project_id).where(
             ProjectMember.user_id == user_id
         )
 
-        # Construct SQLAlchemy filter
+        # Construct SQLAlchemy filter (use only one group check, not duplicated)
         criteria = [
             Project.owner_id == user_id,
             Project.id.in_(member_project_ids),
-            Project.authorization_provider_group_id.in_(user_groups),
         ]
 
         if user_groups:
@@ -338,6 +358,8 @@ class ProjectService:
         projects = (
             db.query(Project).filter(or_(*criteria)).offset(skip).limit(limit).all()
         )
+        
+        logger.info(f"Found {len(projects)} projects for user {user.get('preferred_username')}")
 
         return projects
 
@@ -396,97 +418,314 @@ class ProjectService:
     # --- Sensor Management ---
 
     @staticmethod
-    def add_sensor(db: Session, project_id: UUID, sensor_id: str, user: Dict[str, Any]):
-        ProjectService._check_access(db, project_id, user, required_role="editor")
+    def _resolve_schema_from_thing(thing_uuid: str) -> Optional[str]:
+        """
+        Look up the schema name for a thing from TimeIO.
+        Used for deferred schema assignment when first sensor is added.
+        """
+        try:
+            timeio_db = TimeIODatabase()
+            # Query schema_thing_mapping to find the schema for this thing
+            mappings = timeio_db.get_schema_mappings()
+            for mapping in mappings:
+                if str(mapping.get("thing_uuid")) == str(thing_uuid):
+                    return mapping.get("schema")
+            logger.warning(f"No schema mapping found for thing {thing_uuid}")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to resolve schema for thing {thing_uuid}: {e}")
+            return None
 
-        # Check if already exists using execute for table
+    @staticmethod
+    def add_sensor(
+        db: Session, project_id: UUID, thing_uuid: str, user: Dict[str, Any]
+    ):
+        """
+        Link a sensor (TimeIO thing) to a project.
+        Implements deferred schema assignment: if project has no schema_name,
+        it will be resolved from the first linked sensor's TimeIO data.
+        """
+        project = ProjectService._check_access(
+            db, project_id, user, required_role="editor"
+        )
+
+        # Convert to UUID if string
+        from uuid import UUID as UUIDType
+
+        if isinstance(thing_uuid, str):
+            thing_uuid_parsed = UUIDType(thing_uuid)
+        else:
+            thing_uuid_parsed = thing_uuid
+
+        # Deferred Schema Assignment: If project has no schema, try to resolve from thing
+        if not project.schema_name:
+            resolved_schema = ProjectService._resolve_schema_from_thing(
+                str(thing_uuid_parsed)
+            )
+            if resolved_schema:
+                logger.info(
+                    f"Deferred schema assignment: project {project_id} -> {resolved_schema}"
+                )
+                project.schema_name = resolved_schema
+                db.add(project)
+            else:
+                logger.warning(
+                    f"Could not resolve schema for project {project_id} from thing {thing_uuid}"
+                )
+
+        # Insert into project_sensors table
         stmt = project_sensors.insert().values(
-            project_id=project_id, sensor_id=sensor_id
+            project_id=project_id, thing_uuid=thing_uuid_parsed
         )
         try:
             db.execute(stmt)
             db.commit()
         except IntegrityError:
             db.rollback()
-            # Log the duplicate attempt
-            logger.info(f"Sensor {sensor_id} already in project {project_id}")
-            pass
+            logger.info(f"Sensor {thing_uuid} already in project {project_id}")
         except Exception as error:
             db.rollback()
             logger.error(f"Error adding sensor to project: {error}")
             raise
-        return {"project_id": project_id, "sensor_id": sensor_id}
+        return {"project_id": project_id, "thing_uuid": thing_uuid_parsed}
 
     @staticmethod
     def remove_sensor(
-        db: Session, project_id: UUID, sensor_id: str, user: Dict[str, Any]
+        db: Session,
+        project_id: UUID,
+        thing_uuid: str,
+        user: Dict[str, Any],
+        delete_from_source: bool = False,
     ):
-        ProjectService._check_access(db, project_id, user, required_role="editor")
+        """Remove a sensor from the project, optionally deleting it from TimeIO source."""
+        project = ProjectService._check_access(
+            db, project_id, user, required_role="editor"
+        )
 
+        # Convert to UUID if string
+        from uuid import UUID as UUIDType
+
+        if isinstance(thing_uuid, str):
+            thing_uuid_parsed = UUIDType(thing_uuid)
+        else:
+            thing_uuid_parsed = thing_uuid
+
+        # 1. Remove link
         stmt = project_sensors.delete().where(
             and_(
                 project_sensors.c.project_id == project_id,
-                project_sensors.c.sensor_id == sensor_id,
+                project_sensors.c.thing_uuid == thing_uuid_parsed,
             )
         )
         db.execute(stmt)
         db.commit()
-        return {"status": "removed"}
 
+        # 2. Delete from source if requested
+        if delete_from_source:
+            logger.info(
+                f"Deleting sensor {thing_uuid} from source (TimeIO) for project {project_id}"
+            )
+            # Ensure we have a schema to delete from
+            schema = project.schema_name
+            if not schema:
+                # Try to resolve if not on project
+                schema = ProjectService._resolve_schema_from_thing(
+                    str(thing_uuid_parsed)
+                )
+
+            if schema:
+                try:
+                    timeio_db = TimeIODatabase()
+                    # Use the robust delete_thing_cascade we fixed earlier
+                    timeio_db.delete_thing_cascade(
+                        str(thing_uuid_parsed), known_schema=schema
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to delete sensor from source: {e}")
+                    # We don't raise here to allow the link removal to succeed?
+                    # Or should we warn? Frontend expects success.
+            else:
+                logger.warning(
+                    f"Cannot delete from source: Schema not found for project {project_id}"
+                )
+
+        return {"status": "removed", "source_deleted": delete_from_source}
 
     @staticmethod
     def get_linked_sensors(
-        db: Session, 
-        project_id: UUID, 
-        user: Dict[str, Any], 
-        expand: list[str] = ["Locations","Datastreams"]
+        db: Session,
+        project_id: UUID,
+        user: Dict[str, Any],
+        expand: list[str] = ["Locations", "Datastreams"],
     ) -> List[Thing]:
+        """
+        Get sensors linked to this project with optional FROST expansion.
+        Returns empty list if project has no schema_name (no TimeIO data yet).
+        """
         project = ProjectService._check_access(
             db, project_id, user, required_role="viewer"
         )
 
-        statement = select(project_sensors.c.sensor_id).where(
+        # Query linked thing UUIDs
+        statement = select(project_sensors.c.thing_uuid).where(
             project_sensors.c.project_id == project_id
         )
         linked_uuids = {str(row) for row in db.execute(statement).scalars().all()}
         if not linked_uuids:
             return []
+
         logger.info(f"Linked UUIDs: {linked_uuids}")
         logger.info(f"Project schema: {project.schema_name}")
+
+        # Handle null schema_name gracefully
+        if not project.schema_name:
+            logger.warning(
+                f"Project {project_id} has no schema_name. Cannot fetch FROST data."
+            )
+            # Return basic info without FROST data
+            return [
+                {"thing_uuid": uuid, "status": "schema_not_assigned"}
+                for uuid in linked_uuids
+            ]
+
         logger.info(f"Expand: {expand}")
         thing_service = ThingService(project.schema_name)
-        all_sensors: List[Thing] = thing_service.get_things(expand)
+        # Fetch all things (use a high limit if needed, or default)
+        all_sensors: List[Thing] = thing_service.get_things(expand, top=1000)
 
         linked_things: List[Thing] = [
-            thing for thing in all_sensors 
-            if thing.sensor_uuid in linked_uuids
+            thing for thing in all_sensors if thing.sensor_uuid in linked_uuids
         ]
+
+        # Optimization: Fetch last activity timestamp
+        if linked_things:
+            try:
+                timeio_db = TimeIODatabase()
+                config_uuids = [t.sensor_uuid for t in linked_things if t.sensor_uuid]
+                logger.info(
+                    f"Fetching last activity for UUIDs: {config_uuids} in schema {project.schema_name}"
+                )
+
+                last_activities = timeio_db.get_last_observation_times(
+                    project.schema_name, config_uuids
+                )
+                logger.info(f"Got last_activities: {last_activities}")
+
+                for thing in linked_things:
+                    if thing.sensor_uuid in last_activities:
+                        thing.last_activity = last_activities[thing.sensor_uuid]
+            except Exception as e:
+                logger.error(f"Failed to populate last_activity: {e}", exc_info=True)
+
         return linked_things
 
     @staticmethod
+    def update_sensor(
+        database: Session,
+        project_id: UUID,
+        thing_uuid: str,
+        updates: Dict[str, Any],
+        user: Dict[str, Any],
+    ) -> Any:
+        """
+        Update a linked sensor (Thing).
+        """
+        logger.info(f"ProjectService.update_sensor called for {thing_uuid}")
+        project = ProjectService.get_project(database, project_id, user)
+
+        # 1. Resolve internal Thing ID
+        thing_service = ThingService(project.schema_name)
+        thing_id = thing_service.get_thing_id_from_uuid(thing_uuid)
+        if not thing_id:
+            raise ResourceNotFoundException(f"Sensor {thing_uuid} not found in project")
+
+        # 2. Prepare FROST Update Payload
+        frost_payload = {}
+        if "name" in updates:
+            frost_payload["name"] = updates["name"]
+        if "description" in updates:
+            frost_payload["description"] = updates["description"]
+
+        # Helper to merge properties safely
+        # We need to fetch existing thing first? FROST PATCH is merge by default for top level,
+        # but for properties (JSON), it replaces the whole properties object usually.
+        # So we should fetch, merge, and patch.
+
+        existing_thing = thing_service.get_thing(thing_uuid, expand=[])
+        existing_props = existing_thing.properties or {}
+
+        props_update = updates.get("properties", {})
+
+        # Handle Location -> Stores in properties because FROST Locations are immutable history
+        lat = updates.get("latitude")
+        lon = updates.get("longitude")
+        elevation = updates.get("elevation")
+
+        if lat is not None and lon is not None:
+            props_update["location"] = {
+                "type": "Point",
+                "coordinates": [float(lon), float(lat)],
+            }
+
+        if elevation is not None:
+            props_update["elevation"] = float(elevation)
+
+        # Merge properties
+        final_props = {**existing_props, **props_update}
+        if final_props:
+            frost_payload["properties"] = final_props
+
+        if not frost_payload:
+            return existing_thing
+
+        # 3. Update in Database directly (Bypassing FROST Views)
+        db_payload = {}
+        if "name" in updates:
+            db_payload["name"] = updates["name"]
+        if "description" in updates:
+            db_payload["description"] = updates["description"]
+        if final_props:
+            db_payload["properties"] = final_props
+
+        thing_service.timeio_db.update_thing_properties(
+            project.schema_name, thing_uuid, db_payload
+        )
+
+        return {"status": "success", "uuid": thing_uuid}
+
+    @staticmethod
     def get_available_sensors(
-        db: Session, 
-        project_id: UUID, 
-        user: Dict[str, Any], 
-        expand: list[str] = []
+        db: Session, project_id: UUID, user: Dict[str, Any], expand: list[str] = []
     ) -> List[Thing]:
-        """List sensors available in the project's FROST instance that are NOT linked in water_dp-api."""
+        """
+        List sensors available in the project's FROST instance that are NOT linked in water_dp-api.
+        Returns empty list if project has no schema_name.
+        """
         project = ProjectService._check_access(
             db, project_id, user, required_role="viewer"
         )
 
-        statement = select(project_sensors.c.sensor_id).where(
+        # Handle null schema_name
+        if not project.schema_name:
+            logger.warning(
+                f"Project {project_id} has no schema_name. Cannot list available sensors."
+            )
+            return []
+
+        statement = select(project_sensors.c.thing_uuid).where(
             project_sensors.c.project_id == project_id
         )
         linked_uuids = {str(row) for row in db.execute(statement).scalars().all()}
-        if not linked_uuids:
-            return []
+
         thing_service = ThingService(project.schema_name)
         all_sensors: List[Thing] = thing_service.get_things(expand)
 
+        # If no sensors linked yet, return all available
+        if not linked_uuids:
+            return all_sensors
+
         available_things: List[Thing] = [
-            thing for thing in all_sensors 
-            if thing.sensor_uuid not in linked_uuids
+            thing for thing in all_sensors if thing.sensor_uuid not in linked_uuids
         ]
         return available_things
 
@@ -547,7 +786,9 @@ class ProjectService:
             except Exception as error:
                 # Best-effort: on any failure, keep the default "Unknown" username but log the error.
                 logger.warning(
-                    "Failed to resolve username for user_id %s: %s", member.user_id, error
+                    "Failed to resolve username for user_id %s: %s",
+                    member.user_id,
+                    error,
                 )
             results.append(ProjectMemberResponse(**member_dict))
 

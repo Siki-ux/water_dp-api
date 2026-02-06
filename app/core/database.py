@@ -6,7 +6,7 @@ import logging
 from typing import Generator
 
 from sqlalchemy import MetaData, create_engine
-from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.pool import QueuePool
 
@@ -65,15 +65,28 @@ def init_db() -> None:
             # This is required for SQLAlchemy's declarative base to discover and create tables
             from sqlalchemy import text
 
-            from app.models import GeoFeature, GeoLayer  # noqa: F401
+            from app.models import (  # noqa: F401
+                Alert,
+                AlertDefinition,
+                ComputationJob,
+                ComputationScript,
+                Dashboard,
+                DataSource,
+                GeoFeature,
+                GeoLayer,
+                Project,
+                ProjectMember,
+                Simulation,
+            )
 
             # Use checkfirst=True to avoid errors if tables already exist
             logger.info(
                 f"Targeting tables for creation: {list(Base.metadata.tables.keys())}"
             )
 
-            # Ensure PostGIS extension exists
+            # Ensure PostGIS extension exists and water_dp schema exists
             with engine.connect() as connection:
+                connection.execute(text("CREATE SCHEMA IF NOT EXISTS water_dp;"))
                 connection.execute(
                     text("CREATE EXTENSION IF NOT EXISTS postgis CASCADE;")
                 )
@@ -82,7 +95,7 @@ def init_db() -> None:
             Base.metadata.create_all(bind=engine, checkfirst=True)
             logger.info("Database tables initialized successfully")
             return  # Success
-        except (ProgrammingError, OperationalError) as e:
+        except (ProgrammingError, OperationalError, IntegrityError) as e:
             error_str = str(e).lower()
             if "already exists" in error_str or "duplicate" in error_str:
                 logger.warning(

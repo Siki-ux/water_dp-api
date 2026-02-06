@@ -6,36 +6,23 @@ from typing import List, Optional
 
 from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import UUID4, BaseModel
+from pydantic import UUID4
 from sqlalchemy.orm import Session
 
 from app.api import deps
 from app.core.database import get_db
 from app.models.computations import ComputationJob, ComputationScript
+from app.schemas.computation import (
+    ComputationJobRead,
+    ComputationRequest,
+    ComputationScriptRead,
+    ScriptContentUpdate,
+    TaskSubmissionResponse,
+)
 from app.services.project_service import ProjectService
 from app.tasks.computation_tasks import run_computation_task
 
 router = APIRouter()
-
-
-class ComputationScriptRead(BaseModel):
-    id: UUID4
-    name: str
-    description: str | None
-    project_id: UUID4
-    filename: str
-
-    class ConfigDict:
-        from_attributes = True
-
-
-class ComputationRequest(BaseModel):
-    params: dict = {}
-
-
-class TaskSubmissionResponse(BaseModel):
-    task_id: str
-    status: str
 
 
 COMPUTATIONS_DIR = "app/computations"
@@ -105,7 +92,6 @@ async def upload_computation_script(
     content_str = content.decode("utf-8")
     validate_script_security(content_str)
 
-
     if not os.path.exists(COMPUTATIONS_DIR):
         os.makedirs(COMPUTATIONS_DIR)
 
@@ -139,7 +125,7 @@ async def upload_computation_script(
 
 
 @router.post("/run/{script_id}", response_model=TaskSubmissionResponse)
-def run_computation(
+async def run_computation(
     script_id: UUID4,
     request: ComputationRequest,
     database: Session = Depends(get_db),
@@ -150,7 +136,9 @@ def run_computation(
     Requires 'viewer' access to the associated project.
     """
     script = (
-        database.query(ComputationScript).filter(ComputationScript.id == script_id).first()
+        database.query(ComputationScript)
+        .filter(ComputationScript.id == script_id)
+        .first()
     )
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
@@ -195,7 +183,7 @@ def run_computation(
 
 
 @router.get("/list/{project_id}", response_model=List[ComputationScriptRead])
-def list_project_computations(
+async def list_project_computations(
     project_id: UUID4,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
@@ -214,7 +202,7 @@ def list_project_computations(
 
 
 @router.get("/scripts", response_model=List[ComputationScriptRead])
-def list_all_scripts(
+async def list_all_scripts(
     project_id: Optional[UUID4] = None,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
@@ -225,9 +213,7 @@ def list_all_scripts(
     query = database.query(ComputationScript)
 
     if project_id:
-        ProjectService._check_access(
-            database, project_id, user, required_role="viewer"
-        )
+        ProjectService._check_access(database, project_id, user, required_role="viewer")
         query = query.filter(ComputationScript.project_id == project_id)
     else:
         # If no project_id, maybe list all accessible?
@@ -240,24 +226,8 @@ def list_all_scripts(
     return query.all()
 
 
-class ComputationJobRead(BaseModel):
-    id: str
-    script_id: UUID4
-    user_id: str
-    status: str
-    start_time: str | None
-    end_time: str | None
-    result: str | None
-    error: str | None
-    logs: str | None
-    created_by: str | None
-
-    class ConfigDict:
-        from_attributes = True
-
-
 @router.get("/jobs/{script_id}", response_model=List[ComputationJobRead])
-def list_script_jobs(
+async def list_script_jobs(
     script_id: UUID4,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
@@ -267,7 +237,9 @@ def list_script_jobs(
     Syncs PENDING jobs from Celery before returning.
     """
     script = (
-        database.query(ComputationScript).filter(ComputationScript.id == script_id).first()
+        database.query(ComputationScript)
+        .filter(ComputationScript.id == script_id)
+        .first()
     )
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
@@ -320,7 +292,7 @@ def list_script_jobs(
 
 
 @router.get("/tasks/{task_id}")
-def get_computation_status(
+async def get_computation_status(
     task_id: str,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
@@ -390,7 +362,7 @@ def get_computation_status(
 
 
 @router.get("/content/{script_id}")
-def get_script_content(
+async def get_script_content(
     script_id: UUID4,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
@@ -399,7 +371,9 @@ def get_script_content(
     Get the raw content of a computation script.
     """
     script = (
-        database.query(ComputationScript).filter(ComputationScript.id == script_id).first()
+        database.query(ComputationScript)
+        .filter(ComputationScript.id == script_id)
+        .first()
     )
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
@@ -418,12 +392,8 @@ def get_script_content(
     return {"content": content}
 
 
-class ScriptContentUpdate(BaseModel):
-    content: str
-
-
 @router.put("/content/{script_id}")
-def update_script_content(
+async def update_script_content(
     script_id: UUID4,
     update_data: ScriptContentUpdate,
     database: Session = Depends(get_db),
@@ -434,7 +404,9 @@ def update_script_content(
     Requires 'editor' access.
     """
     script = (
-        database.query(ComputationScript).filter(ComputationScript.id == script_id).first()
+        database.query(ComputationScript)
+        .filter(ComputationScript.id == script_id)
+        .first()
     )
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")

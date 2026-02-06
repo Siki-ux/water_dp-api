@@ -15,6 +15,9 @@ from sqlalchemy.orm import Session, declarative_base
 class BaseModel:
     """Base model with common fields."""
 
+    # All tables belong to water_dp schema
+    __table_args__ = {"schema": "water_dp"}
+
     id = Column(Integer, primary_key=True, index=True)
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False

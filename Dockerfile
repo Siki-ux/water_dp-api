@@ -28,13 +28,13 @@ RUN pip install --no-cache-dir poetry==1.8.2 \
     && poetry config virtualenvs.create false
 
 COPY pyproject.toml poetry.lock* ./
-RUN poetry lock --no-update && poetry install --no-interaction --no-ansi --no-root --only main
+RUN poetry install --no-interaction --no-ansi --no-root --only main
 
-# Copy project
-COPY . .
-
-# Create non-root user
+# Create non-root user earlier
 RUN adduser --disabled-password --gecos '' appuser && chown -R appuser:appuser /app
+
+# Copy project with ownership set, skipping slow recursive chown
+COPY --chown=appuser:appuser . .
 USER appuser
 
 # Expose port

@@ -11,7 +11,7 @@ router = APIRouter()
 
 
 @router.post("/token", response_model=TokenSchema)
-def login_access_token(
+async def login_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
 ) -> Dict[str, Any]:
     """
@@ -21,7 +21,7 @@ def login_access_token(
 
 
 @router.post("/login", response_model=TokenSchema)
-def login(request: LoginRequest) -> Dict[str, Any]:
+async def login(request: LoginRequest) -> Dict[str, Any]:
     """
     Login with username and password to obtain access and refresh tokens.
     """
@@ -29,7 +29,7 @@ def login(request: LoginRequest) -> Dict[str, Any]:
 
 
 @router.post("/refresh", response_model=TokenSchema)
-def refresh_token(request: TokenRefreshRequest) -> Dict[str, Any]:
+async def refresh_token(request: TokenRefreshRequest) -> Dict[str, Any]:
     """
     Refresh an access token using a valid refresh token.
     """
@@ -37,7 +37,7 @@ def refresh_token(request: TokenRefreshRequest) -> Dict[str, Any]:
 
 
 @router.get("/me", response_model=Dict[str, Any])
-def check_session(current_user: Dict[str, Any] = Depends(deps.get_current_user)):
+async def check_session(current_user: Dict[str, Any] = Depends(deps.get_current_user)):
     """
     Check current session validity and return user details.
     """

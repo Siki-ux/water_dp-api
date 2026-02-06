@@ -138,6 +138,17 @@ def delete_user(token, realm, user_id):
         print(f"Error deleting user: {e}")
 
 
+def set_user_password(token, realm, user_id, password):
+    url = f"{KEYCLOAK_URL}/admin/realms/{realm}/users/{user_id}/reset-password"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    payload = {"value": password, "type": "password", "temporary": False}
+    response = requests.put(url, headers=headers, json=payload)
+    if response.status_code == 204:
+        print(f"Successfully set password for user {user_id}")
+    else:
+        print(f"Failed to set password: {response.text}")
+
+
 def create_user(token, realm, username, password):
     url = f"{KEYCLOAK_URL}/admin/realms/{realm}/users"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -152,12 +163,12 @@ def create_user(token, realm, username, password):
     response = requests.post(url, headers=headers, json=payload)
     if response.status_code == 201:
         print(f"Created user {username} in {realm}")
-        # Get ID
         user = find_user(token, realm, username)
         return user["id"]
     elif response.status_code == 409:
-        print(f"User {username} already exists in {realm}")
+        print(f"User {username} already exists in {realm}. Ensuring password is up to date...")
         user = find_user(token, realm, username)
+        set_user_password(token, realm, user["id"], password)
         return user["id"]
     else:
         print(f"Failed to create user: {response.text}")
@@ -290,13 +301,14 @@ if __name__ == "__main__":
     print("Obtaining new admin token for user operations...")
     token = get_admin_token()
 
-    cleanup_user_name = "admin-siki"
+    admin_user = os.getenv("SEED_ADMIN_USERNAME", "admin-siki")
+    admin_pass = os.getenv("SEED_ADMIN_PASSWORD", "admin-siki")
 
     # 3. Create in TARGET REALM
     print(f"Checking '{KEYCLOAK_REALM}' realm for user creation...")
     try:
         user_id = create_user(
-            token, KEYCLOAK_REALM, cleanup_user_name, cleanup_user_name
+            token, KEYCLOAK_REALM, admin_user, admin_pass
         )  # pass used as username/pass
 
         # 4. Assign Roles

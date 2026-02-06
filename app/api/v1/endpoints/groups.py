@@ -10,7 +10,7 @@ router = APIRouter()
 
 
 @router.get("/", response_model=List[Any])
-def list_groups(user: dict = Depends(get_current_user)):
+async def list_groups(user: dict = Depends(get_current_user)):
     """
     List groups.
     If user has 'admin' realm role, returns all groups.
@@ -33,7 +33,7 @@ def list_groups(user: dict = Depends(get_current_user)):
 
 
 @router.get("/my-authorization-groups", response_model=List[Any])
-def list_my_authorization_groups(user: dict = Depends(get_current_user)):
+async def list_my_authorization_groups(user: dict = Depends(get_current_user)):
     """
     List groups where the user has specific authorization (e.g. is in /Editor or /Admin subgroup).
     Returns the distinct PARENT groups.
@@ -99,7 +99,7 @@ def list_my_authorization_groups(user: dict = Depends(get_current_user)):
 
 
 @router.post("/", status_code=201)
-def create_group(
+async def create_group(
     name: str = Body(..., embed=True), user: dict = Depends(get_current_user)
 ):
     """
@@ -151,7 +151,7 @@ def create_group(
 
 
 @router.get("/{group_id}", response_model=Any)
-def get_group_details(group_id: str, user: dict = Depends(get_current_user)):
+async def get_group_details(group_id: str, user: dict = Depends(get_current_user)):
     """
     Get details of a specific group.
     """
@@ -162,7 +162,7 @@ def get_group_details(group_id: str, user: dict = Depends(get_current_user)):
 
 
 @router.get("/{group_id}/members", response_model=List[Any])
-def get_group_members(
+async def get_group_members(
     group_id: str,
     exclude_admins: bool = True,
     user: dict = Depends(get_current_user),
@@ -183,7 +183,9 @@ def get_group_members(
                 admin_ids = {user_item["id"] for user_item in admin_members}
 
                 # Filter members
-                filtered_members = [member for member in members if member["id"] not in admin_ids]
+                filtered_members = [
+                    member for member in members if member["id"] not in admin_ids
+                ]
                 return filtered_members
         except Exception as error:
             print(f"Error filtering admin members: {error}")
@@ -194,7 +196,7 @@ def get_group_members(
 
 
 @router.post("/{group_id}/members", status_code=201)
-def add_group_member(
+async def add_group_member(
     group_id: str,
     username: str = Body(..., embed=True),
     user: dict = Depends(get_current_user),
@@ -216,7 +218,7 @@ def add_group_member(
 
 
 @router.delete("/{group_id}/members/{user_id}")
-def remove_group_member(
+async def remove_group_member(
     group_id: str, user_id: str, user: dict = Depends(get_current_user)
 ):
     """

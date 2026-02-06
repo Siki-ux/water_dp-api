@@ -7,6 +7,7 @@ v1 Projects Endpoints
     For TimeIO diagnostics, use `/api/v2/admin/timeio/`.
 """
 
+import asyncio
 import logging
 from typing import Any, List
 from uuid import UUID
@@ -29,7 +30,6 @@ from app.schemas.user_context import (
 )
 from app.services.dashboard_service import DashboardService
 from app.services.project_service import ProjectService
-from app.services.timeio.timeio_db import TimeIODatabase
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
-def create_project(
+async def create_project(
     project_in: ProjectCreate,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
@@ -48,7 +48,7 @@ def create_project(
 
 
 @router.get("/", response_model=List[ProjectResponse])
-def list_projects(
+async def list_projects(
     skip: int = 0,
     limit: int = 100,
     database: Session = Depends(get_db),
@@ -59,7 +59,7 @@ def list_projects(
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
-def get_project(
+async def get_project(
     project_id: UUID,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
@@ -69,18 +69,18 @@ def get_project(
 
 
 @router.put("/{project_id}", response_model=ProjectResponse)
-def update_project(
+async def update_project(
     project_id: UUID,
     project_in: ProjectUpdate,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
 ) -> Any:
-    # Need to import ProjectUpdate schema if not available, but it should be in user_context
+    """Update a project."""
     return ProjectService.update_project(database, project_id, project_in, user)
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_project(
+async def delete_project(
     project_id: UUID,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
@@ -94,7 +94,7 @@ def delete_project(
 
 
 @router.get("/{project_id}/members", response_model=List[ProjectMemberResponse])
-def list_project_members(
+async def list_project_members(
     project_id: UUID,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
@@ -104,7 +104,7 @@ def list_project_members(
 
 
 @router.post("/{project_id}/members", response_model=ProjectMemberResponse)
-def add_project_member(
+async def add_project_member(
     project_id: UUID,
     member_in: ProjectMemberCreate,
     database: Session = Depends(get_db),
@@ -134,7 +134,7 @@ def add_project_member(
 
 
 @router.put("/{project_id}/members/{user_id}", response_model=ProjectMemberResponse)
-def update_project_member(
+async def update_project_member(
     project_id: UUID,
     user_id: str,
     member_in: ProjectMemberUpdate,
@@ -148,7 +148,7 @@ def update_project_member(
 
 
 @router.delete("/{project_id}/members/{user_id}")
-def remove_project_member(
+async def remove_project_member(
     project_id: UUID,
     user_id: str,
     database: Session = Depends(get_db),
@@ -160,55 +160,82 @@ def remove_project_member(
 
 # --- Project Sensors ---
 
+
 @router.get("/{project_id}/sensors", response_model=List[Any])
-def list_project_sensors(
+async def list_project_sensors(
     project_id: UUID,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
 ) -> Any:
     """List sensors in project with basic metadata from database."""
-    return ProjectService.get_linked_sensors(database, project_id, user)
-    
+    # Run sync service in thread pool to avoid blocking
+    return await asyncio.to_thread(
+        ProjectService.get_linked_sensors, database, project_id, user
+    )
+
 
 @router.get("/{project_id}/available-sensors", response_model=List[Any])
-def get_available_sensors(
+async def get_available_sensors(
     project_id: UUID,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
 ) -> Any:
     """List sensors available in FROST that are NOT linked to this project."""
-    return ProjectService.get_available_sensors(database, project_id, user)
+    return await asyncio.to_thread(
+        ProjectService.get_available_sensors, database, project_id, user
+    )
 
 
 @router.post("/{project_id}/sensors", response_model=ProjectSensorResponse)
-def add_project_sensor(
+async def add_project_sensor(
     project_id: UUID,
-    sensor_id: str = Query(..., description="TimeIO Thing UUID"),
+    thing_uuid: str = Query(..., description="TimeIO Thing UUID"),
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
 ) -> Any:
     """
-    Link a sensor to the project.
+    Link a sensor (TimeIO thing) to the project.
+
+    When the first sensor is added to a project without a schema_name,
+    the schema will be automatically resolved from TimeIO (deferred schema assignment).
     """
-    return ProjectService.add_sensor(database, project_id, sensor_id, user)
+    return ProjectService.add_sensor(database, project_id, thing_uuid, user)
 
 
-@router.delete("/{project_id}/sensors/{sensor_id}")
-def remove_project_sensor(
+@router.delete("/{project_id}/sensors/{thing_uuid}")
+async def remove_project_sensor(
     project_id: UUID,
-    sensor_id: str,
+    thing_uuid: str,
+    delete_from_source: bool = Query(
+        False, description="Permanently delete from database"
+    ),
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
 ) -> Any:
     """Remove a sensor from the project."""
-    return ProjectService.remove_sensor(database, project_id, sensor_id, user)
+    return ProjectService.remove_sensor(
+        database, project_id, thing_uuid, user, delete_from_source=delete_from_source
+    )
+
+
+@router.put("/{project_id}/things/{thing_uuid}")
+async def update_project_sensor(
+    project_id: UUID,
+    thing_uuid: str,
+    updates: dict,
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
+) -> Any:
+    """Update a sensor (Thing) details."""
+    logger.info(f"Received update request for thing {thing_uuid}")
+    return ProjectService.update_sensor(database, project_id, thing_uuid, updates, user)
 
 
 # --- Project Dashboards (Convenience) ---
 
 
 @router.get("/{project_id}/dashboards", response_model=List[DashboardResponse])
-def list_project_dashboards(
+async def list_project_dashboards(
     project_id: UUID,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
@@ -218,7 +245,7 @@ def list_project_dashboards(
 
 
 @router.post("/{project_id}/dashboards", response_model=DashboardResponse)
-def create_project_dashboard(
+async def create_project_dashboard(
     project_id: UUID,
     dashboard_in: DashboardCreate,
     database: Session = Depends(get_db),

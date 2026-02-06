@@ -10,13 +10,14 @@ from app.api.v1.endpoints import (
     bulk,
     computations,
     dashboards,
+    datasets,
     datasources,
     geospatial,
     groups,
+    parsers,
     projects,
     simulator,
     things,
-    parsers,
 )
 
 api_router = APIRouter()
@@ -26,6 +27,7 @@ api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(groups.router, prefix="/groups", tags=["groups"])
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
 api_router.include_router(things.router, prefix="/things", tags=["sensors"])
+api_router.include_router(datasets.router, prefix="/datasets", tags=["datasets"])
 api_router.include_router(parsers.router, prefix="/parsers", tags=["parsers"])
 api_router.include_router(geospatial.router, prefix="/geospatial", tags=["geospatial"])
 api_router.include_router(

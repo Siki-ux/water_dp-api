@@ -37,9 +37,9 @@ def run_simulation_step():
         if not active_sims:
             logger.debug("No active simulations found.")
             return
-        
+
         logger.info(f"Found {len(active_sims)} active simulations.")
-        
+
         # Filter by Interval FIRST to avoid unnecessary TSM lookups
         sims_to_run = []
         now = datetime.now(timezone.utc)
@@ -48,11 +48,13 @@ def run_simulation_step():
             if sim.last_run:
                 delta = (now - sim.last_run).total_seconds()
                 interval = sim.interval_seconds or 60
-                logger.debug(f"Sim {sim.id}: last_run={sim.last_run}, delta={delta}, interval={interval}")
+                logger.debug(
+                    f"Sim {sim.id}: last_run={sim.last_run}, delta={delta}, interval={interval}"
+                )
                 if delta < interval:
                     continue
             else:
-                 logger.debug(f"Sim {sim.id}: First run.")
+                logger.debug(f"Sim {sim.id}: First run.")
 
             sims_to_run.append(sim)
 
@@ -82,8 +84,8 @@ def run_simulation_step():
         count = 0
         for sim in sims_to_run:
             try:
-                # 3. Get Credentials from Batch
-                t_config = thing_configs.get(sim.thing_uuid)
+                # 3. Get Credentials from Batch (using str() since thing_configs keys are strings)
+                t_config = thing_configs.get(str(sim.thing_uuid))
 
                 if not t_config:
                     # TSM Thing might have been deleted?

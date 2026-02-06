@@ -1,3 +1,4 @@
+from typing import Dict, List, Union
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path
@@ -22,7 +23,7 @@ def check_admin_access(user: dict, project_id: UUID, database: Session):
 
 
 @router.get("/projects/{project_id}/simulator/status")
-def get_simulator_status(
+async def get_simulator_status(
     project_id: UUID = Path(...),
     database: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
@@ -35,7 +36,7 @@ def get_simulator_status(
 
 
 @router.post("/projects/{project_id}/simulator/things")
-def create_simulated_thing(
+async def create_simulated_thing(
     simulator_request: CreateSimulatedThingRequest,
     project_id: UUID = Path(...),
     database: Session = Depends(get_db),
@@ -54,8 +55,17 @@ def create_simulated_thing(
 
     # Prepare data for Service
     location = None
-    if simulator_request.thing.latitude is not None and simulator_request.thing.longitude is not None:
-        location = {"latitude": simulator_request.thing.latitude, "longitude": simulator_request.thing.longitude}
+    if (
+        simulator_request.thing.latitude is not None
+        and simulator_request.thing.longitude is not None
+    ):
+        location = {
+            "type": "Point",
+            "coordinates": [
+                simulator_request.thing.longitude,
+                simulator_request.thing.latitude,
+            ],
+        }
 
     thing_props = None
     if simulator_request.thing.properties:
@@ -73,6 +83,8 @@ def create_simulated_thing(
         interval_seconds=60,  # TBD: Per-stream or global? Using default for now.
         thing_properties=thing_props,
         location=location,
+        project_schema=project_db_obj.schema_name,
+        project_name=project_db_obj.name,
     )
 
     if not result:
@@ -93,7 +105,7 @@ def create_simulated_thing(
 
 
 @router.get("/projects/{project_id}/simulator/simulations")
-def list_simulations(
+async def list_simulations(
     project_id: UUID = Path(...),
     database: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
@@ -104,12 +116,13 @@ def list_simulations(
 
 
 @router.post("/projects/{project_id}/simulator/simulations")
-def update_simulation_config(
+async def update_simulation_config(
     project_id: UUID = Path(...),
     thing_id: str = Body(...),
-    config: dict = Body(...),
+    config: Union[Dict, List] = Body(...),
     name: str = Body(None),
     location: dict = Body(None),
+    is_running: bool = Body(None),
     database: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
     token: str = Depends(deps.oauth2_scheme),
@@ -120,7 +133,7 @@ def update_simulation_config(
     """
     check_admin_access(user, project_id, database)
     result = SimulatorService.update_simulation_config(
-        thing_id, config, token, name=name, location=location
+        thing_id, config, token, name=name, location=location, is_enabled=is_running
     )
     if not result:
         raise HTTPException(status_code=404, detail="Thing not found or update failed")
@@ -128,7 +141,7 @@ def update_simulation_config(
 
 
 @router.post("/projects/{project_id}/simulator/simulations/{simulation_id}/start")
-def start_simulation(
+async def start_simulation(
     project_id: UUID = Path(...),
     simulation_id: str = Path(
         ...
@@ -141,7 +154,11 @@ def start_simulation(
     # 1. Fetch current config to toggle
     things = SimulatorService.get_all_simulated_things(str(project_id), database, token)
     target = next(
-        (thing_item for thing_item in things if thing_item["uuid"] == simulation_id or thing_item["id"] == simulation_id),
+        (
+            thing_item
+            for thing_item in things
+            if thing_item["uuid"] == simulation_id or thing_item["id"] == simulation_id
+        ),
         None,
     )
 
@@ -149,16 +166,26 @@ def start_simulation(
         raise HTTPException(status_code=404, detail="Simulation Thing not found")
 
     config = target.get("config", {}) or {}
-    config["is_running"] = True
 
-    result = SimulatorService.update_simulation_config(target["id"], config, token)
+    # Enable all datastreams if list
+    if isinstance(config, list):
+        for ds in config:
+            ds["enabled"] = True
+            ds["active"] = True
+    elif isinstance(config, dict):
+        config["is_running"] = True
+        config["enabled"] = True
+
+    result = SimulatorService.update_simulation_config(
+        target["thing_id"], config, token, is_enabled=True
+    )
     if not result:
         raise HTTPException(status_code=500, detail="Failed to start simulation")
     return result
 
 
 @router.post("/projects/{project_id}/simulator/simulations/{simulation_id}/stop")
-def stop_simulation(
+async def stop_simulation(
     project_id: UUID = Path(...),
     simulation_id: str = Path(...),
     database: Session = Depends(get_db),
@@ -169,7 +196,11 @@ def stop_simulation(
     # 1. Fetch current config to toggle
     things = SimulatorService.get_all_simulated_things(str(project_id), database, token)
     target = next(
-        (thing_item for thing_item in things if thing_item["uuid"] == simulation_id or thing_item["id"] == simulation_id),
+        (
+            thing_item
+            for thing_item in things
+            if thing_item["uuid"] == simulation_id or thing_item["id"] == simulation_id
+        ),
         None,
     )
 
@@ -177,16 +208,26 @@ def stop_simulation(
         raise HTTPException(status_code=404, detail="Simulation Thing not found")
 
     config = target.get("config", {}) or {}
-    config["is_running"] = False
 
-    result = SimulatorService.update_simulation_config(target["id"], config, token)
+    # Disable all datastreams if list
+    if isinstance(config, list):
+        for ds in config:
+            ds["enabled"] = False
+            ds["active"] = False
+    elif isinstance(config, dict):
+        config["is_running"] = False
+        config["enabled"] = False
+
+    result = SimulatorService.update_simulation_config(
+        target["thing_id"], config, token, is_enabled=False
+    )
     if not result:
         raise HTTPException(status_code=500, detail="Failed to stop simulation")
     return result
 
 
 @router.delete("/projects/{project_id}/simulator/things/{thing_id}")
-def delete_simulated_thing(
+async def delete_simulated_thing(
     project_id: UUID = Path(...),
     thing_id: str = Path(...),
     database: Session = Depends(get_db),

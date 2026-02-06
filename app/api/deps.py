@@ -2,6 +2,7 @@
 API Dependencies for Authentication and Authorization.
 """
 
+import os
 from typing import Any, Callable, Dict
 
 from fastapi import Depends, HTTPException, status
@@ -14,7 +15,7 @@ from app.core.security import verify_token
 oauth2_scheme = OAuth2PasswordBearer(
     # auto_error=False prevents FastAPI from automatically raising 401.
     # We handle this manually in get_current_user to return a consistent error structure.
-    tokenUrl=f"{settings.api_prefix}/auth/token",
+    tokenUrl=f"{os.getenv('ROOT_PATH', '')}{settings.api_prefix}/auth/token",
     auto_error=False,
 )
 

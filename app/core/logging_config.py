@@ -90,7 +90,7 @@ def setup_logging():
             },
             "sqlalchemy.engine": {
                 "handlers": handlers,
-                "level": settings.sqlalchemy_log_level.upper(),
+                "level": "INFO" if settings.debug else "WARNING",
                 "propagate": False,
             },
             "fastapi": {

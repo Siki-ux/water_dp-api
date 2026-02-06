@@ -116,7 +116,9 @@ async def get_geo_layers(
 
         traceback.print_exc()
         logger.error(f"Failed to fetch layers from GeoServer: {error}")
-        raise HTTPException(status_code=500, detail=f"GeoServer Proxy Error: {str(error)}")
+        raise HTTPException(
+            status_code=500, detail=f"GeoServer Proxy Error: {str(error)}"
+        )
 
 
 @router.get("/layers/{layer_name}", response_model=GeoLayerResponse)
@@ -437,7 +439,9 @@ async def get_layer_geojson(
 @router.get("/layers/{layer_name}/sensors")
 async def get_sensors_in_layer(
     layer_name: str,
-    tenant: Optional[str] = Query(None, description="Schema name of the tenant (project)"),
+    tenant: Optional[str] = Query(
+        None, description="Schema name of the tenant (project)"
+    ),
     db: Session = Depends(get_db),
 ):
     """Get sensors (Things) within the specified layer's geometry."""

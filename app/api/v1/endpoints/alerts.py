@@ -60,7 +60,7 @@ class AlertRead(BaseModel):
 
 
 @router.get("/definitions/{project_id}", response_model=List[AlertDefinitionRead])
-def get_alert_definitions(
+async def get_alert_definitions(
     project_id: UUID4,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
@@ -71,13 +71,15 @@ def get_alert_definitions(
     ProjectService._check_access(database, project_id, user, required_role="viewer")
 
     definitions = (
-        database.query(AlertDefinition).filter(AlertDefinition.project_id == project_id).all()
+        database.query(AlertDefinition)
+        .filter(AlertDefinition.project_id == project_id)
+        .all()
     )
     return definitions
 
 
 @router.post("/definitions", response_model=AlertDefinitionRead)
-def create_alert_definition(
+async def create_alert_definition(
     definition: AlertDefinitionCreate,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
@@ -115,7 +117,7 @@ class AlertDefinitionUpdate(BaseModel):
 
 
 @router.put("/definitions/{definition_id}", response_model=AlertDefinitionRead)
-def update_alert_definition(
+async def update_alert_definition(
     definition_id: UUID4,
     update_data: AlertDefinitionUpdate,
     database: Session = Depends(get_db),
@@ -125,7 +127,9 @@ def update_alert_definition(
     Update an alert definition.
     """
     db_def = (
-        database.query(AlertDefinition).filter(AlertDefinition.id == definition_id).first()
+        database.query(AlertDefinition)
+        .filter(AlertDefinition.id == definition_id)
+        .first()
     )
     if not db_def:
         raise HTTPException(status_code=404, detail="Alert definition not found")
@@ -151,7 +155,7 @@ def update_alert_definition(
 
 
 @router.delete("/definitions/{definition_id}")
-def delete_alert_definition(
+async def delete_alert_definition(
     definition_id: UUID4,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
@@ -160,7 +164,9 @@ def delete_alert_definition(
     Delete an alert definition.
     """
     db_def = (
-        database.query(AlertDefinition).filter(AlertDefinition.id == definition_id).first()
+        database.query(AlertDefinition)
+        .filter(AlertDefinition.id == definition_id)
+        .first()
     )
     if not db_def:
         raise HTTPException(status_code=404, detail="Alert definition not found")
@@ -175,7 +181,7 @@ def delete_alert_definition(
 
 
 @router.get("/history/{project_id}", response_model=List[AlertRead])
-def get_alert_history(
+async def get_alert_history(
     project_id: UUID4,
     status: Optional[str] = None,
     database: Session = Depends(get_db),
@@ -202,7 +208,7 @@ def get_alert_history(
 
 
 @router.post("/history/{alert_id}/acknowledge")
-def acknowledge_alert(
+async def acknowledge_alert(
     alert_id: UUID4,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
@@ -233,7 +239,7 @@ def acknowledge_alert(
 
 
 @router.post("/test-trigger", response_model=AlertRead)
-def trigger_test_alert(
+async def trigger_test_alert(
     definition_id: UUID4 = Body(..., embed=True),
     message: str = Body(..., embed=True),
     database: Session = Depends(get_db),
@@ -243,7 +249,9 @@ def trigger_test_alert(
     Manually trigger an alert for testing/demo purposes.
     """
     db_def = (
-        database.query(AlertDefinition).filter(AlertDefinition.id == definition_id).first()
+        database.query(AlertDefinition)
+        .filter(AlertDefinition.id == definition_id)
+        .first()
     )
     if not db_def:
         raise HTTPException(status_code=404, detail="Alert definition not found")

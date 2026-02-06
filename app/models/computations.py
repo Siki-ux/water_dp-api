@@ -18,7 +18,7 @@ class ComputationScript(Base, BaseModel):
 
     project_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
+        ForeignKey("water_dp.projects.id", ondelete="CASCADE"),
         nullable=False,
     )
     uploaded_by = Column(String, nullable=False)  # User ID
@@ -32,7 +32,7 @@ class ComputationJob(Base, BaseModel):
 
     script_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("computation_scripts.id", ondelete="CASCADE"),
+        ForeignKey("water_dp.computation_scripts.id", ondelete="CASCADE"),
         nullable=False,
     )
     user_id = Column(String, nullable=False)  # User who started it

@@ -3,8 +3,17 @@ User Context models for Projects and Dashboards.
 """
 
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Boolean, Column, ForeignKey, String, Table, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    String,
+    Table,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -12,17 +21,20 @@ from app.core.database import Base
 from app.models.base import BaseModel
 
 # Association table for Project <-> Sensor (TimeIO Thing)
-# Since Sensors are external (TimeIO), we just store the ID string.
+# Uses UUID to match TimeIO thing.uuid type
 project_sensors = Table(
     "project_sensors",
     Base.metadata,
     Column(
         "project_id",
         UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
+        ForeignKey("water_dp.projects.id", ondelete="CASCADE"),
         primary_key=True,
     ),
-    Column("sensor_id", String, primary_key=True),  # TimeIO/Frost Thing ID
+    Column("thing_uuid", UUID(as_uuid=True), primary_key=True),  # TimeIO thing UUID
+    Column(
+        "added_at", DateTime, default=datetime.utcnow
+    ),  # Track when sensor was added
 )
 
 
@@ -88,7 +100,7 @@ class ProjectMember(Base, BaseModel):
 
     project_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
+        ForeignKey("water_dp.projects.id", ondelete="CASCADE"),
         nullable=False,
     )
     user_id = Column(String(255), nullable=False)  # Keycloak ID
@@ -115,7 +127,7 @@ class Dashboard(Base, BaseModel):
 
     project_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
+        ForeignKey("water_dp.projects.id", ondelete="CASCADE"),
         nullable=False,
     )
     name = Column(String(255), nullable=False)

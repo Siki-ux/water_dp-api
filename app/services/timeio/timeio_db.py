@@ -35,9 +35,9 @@ class TimeIODatabase:
         self,
         db_host: str = None,
         db_port: int = None,
-        database: str = "postgres",
-        user: str = "postgres",
-        password: str = "postgres",
+        database: str = None,
+        user: str = None,
+        password: str = None,
     ):
         """
         Initialize TimeIO database connection parameters.
@@ -51,9 +51,9 @@ class TimeIODatabase:
         """
         self._db_host = db_host or getattr(settings, "timeio_db_host", "localhost")
         self._db_port = db_port or getattr(settings, "timeio_db_port", 5432)
-        self.database = database
-        self.user = user
-        self.password = password
+        self.database = database or getattr(settings, "timeio_db_name", "postgres")
+        self.user = user or getattr(settings, "timeio_db_user", "postgres")
+        self.password = password or getattr(settings, "timeio_db_password", "postgres")
 
     def _get_connection(self):
         """Create database connection."""
@@ -125,6 +125,22 @@ class TimeIODatabase:
                 )
                 connection.commit()
                 return cursor.rowcount > 0
+        finally:
+            connection.close()
+
+    def get_schema_for_thing(self, thing_uuid: str) -> Optional[str]:
+        """
+        Get the schema name for a specific thing UUID.
+        """
+        connection = self._get_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT schema FROM public.schema_thing_mapping WHERE thing_uuid = %s",
+                    (thing_uuid,),
+                )
+                result = cursor.fetchone()
+                return result[0] if result else None
         finally:
             connection.close()
 
@@ -245,7 +261,7 @@ class TimeIODatabase:
                     CREATE VIEW {schema}."OBSERVATIONS" AS
                     SELECT
                         o.id AS "ID",
-                        o.phenomenon_time_start AS "PHENOMENON_TIME_START",
+                        COALESCE(o.phenomenon_time_start, o.result_time) AS "PHENOMENON_TIME_START",
                         o.phenomenon_time_end AS "PHENOMENON_TIME_END",
                         o.result_time AS "RESULT_TIME",
                         o.result_type AS "RESULT_TYPE",
@@ -276,8 +292,47 @@ class TimeIODatabase:
                         d.name AS "NAME",
                         d.name AS "DESCRIPTION",
                         'http://www.opengis.net/def/observationType/OGC-OM/2.0/OM_Measurement' AS "OBSERVATION_TYPE",
-                        d.properties AS "PROPERTIES",
-                        NULL::geometry AS "OBSERVED_AREA",
+                        CASE
+                            WHEN jsonb_typeof(d.properties) = 'object' THEN d.properties
+                            WHEN jsonb_typeof(d.properties) = 'array' AND jsonb_array_length(d.properties) > 1 THEN d.properties->1
+                            WHEN d.properties IS NULL THEN '{{}}'::jsonb
+                            ELSE jsonb_build_object('wrapped_value', d.properties)
+                        END AS "PROPERTIES",
+                        -- Flat Unit Columns (Required by FROST Persistence)
+                        COALESCE(
+                            (CASE
+                                WHEN jsonb_typeof(d.properties) = 'array' AND jsonb_array_length(d.properties) > 1 THEN d.properties->1->>'unit_name'
+                                ELSE d.properties->>'unit_name'
+                            END), d.position, '') AS "UNIT_NAME",
+                        COALESCE(
+                            (CASE
+                                WHEN jsonb_typeof(d.properties) = 'array' AND jsonb_array_length(d.properties) > 1 THEN d.properties->1->>'unit_symbol'
+                                ELSE d.properties->>'unit_symbol'
+                            END), '') AS "UNIT_SYMBOL",
+                        COALESCE(
+                            (CASE
+                                WHEN jsonb_typeof(d.properties) = 'array' AND jsonb_array_length(d.properties) > 1 THEN d.properties->1->>'unit_definition'
+                                ELSE d.properties->>'unit_definition'
+                            END), '') AS "UNIT_DEFINITION",
+                        -- Unit of Measurement (Required by FROST API)
+                        jsonb_build_object(
+                            'name', COALESCE(
+                                (CASE
+                                    WHEN jsonb_typeof(d.properties) = 'array' AND jsonb_array_length(d.properties) > 1 THEN d.properties->1->>'unit_name'
+                                    ELSE d.properties->>'unit_name'
+                                END), d.position, ''),
+                            'symbol', COALESCE(
+                                (CASE
+                                    WHEN jsonb_typeof(d.properties) = 'array' AND jsonb_array_length(d.properties) > 1 THEN d.properties->1->>'unit_symbol'
+                                    ELSE d.properties->>'unit_symbol'
+                                END), ''),
+                            'definition', COALESCE(
+                                (CASE
+                                    WHEN jsonb_typeof(d.properties) = 'array' AND jsonb_array_length(d.properties) > 1 THEN d.properties->1->>'unit_definition'
+                                    ELSE d.properties->>'unit_definition'
+                                END), '')
+                        ) AS "UNIT_OF_MEASUREMENT",
+                        public.ST_GeomFromText('POLYGON EMPTY') AS "OBSERVED_AREA",
                         NULL::timestamptz AS "PHENOMENON_TIME_START",
                         NULL::timestamptz AS "PHENOMENON_TIME_END",
                         NULL::timestamptz AS "RESULT_TIME_START",
@@ -300,7 +355,12 @@ class TimeIODatabase:
                         t.id AS "ID",
                         t.name AS "NAME",
                         t.description AS "DESCRIPTION",
-                        t.properties AS "PROPERTIES",
+                        (CASE
+                            WHEN jsonb_typeof(t.properties) = 'object' THEN t.properties
+                            WHEN jsonb_typeof(t.properties) = 'array' AND jsonb_array_length(t.properties) > 1 THEN t.properties->1
+                            WHEN t.properties IS NULL THEN '{{}}'::jsonb
+                            ELSE jsonb_build_object('wrapped_value', t.properties)
+                        END) || jsonb_build_object('uuid', t.uuid) AS "PROPERTIES",
                         t.uuid AS "UUID"
                     FROM {schema}.thing t
                 """
@@ -318,13 +378,29 @@ class TimeIODatabase:
                         t.name AS "NAME",
                         'Location of ' || t.name AS "DESCRIPTION",
                         'application/vnd.geo+json'::varchar AS "ENCODING_TYPE",
-                        COALESCE(t.properties->'location', '{"type": "Point", "coordinates": [0,0]}'::jsonb) AS "LOCATION",
-                        CASE 
+                        -- Handle both Direct Object and Array-wrapped properties (common TSM artifact)
+                        COALESCE(
+                            CASE
+                                WHEN jsonb_typeof(t.properties) = 'array' AND jsonb_array_length(t.properties) > 1 THEN t.properties->1->'location'
+                                ELSE t.properties->'location'
+                            END,
+                            '{{"type": "Point", "coordinates": [0,0]}}'::jsonb
+                        ) AS "LOCATION",
+                        CASE
                             WHEN jsonb_typeof(t.properties) = 'object' THEN t.properties
-                            WHEN t.properties IS NULL THEN '{}'::jsonb
+                            WHEN jsonb_typeof(t.properties) = 'array' AND jsonb_array_length(t.properties) > 1 THEN t.properties->1
+                            WHEN t.properties IS NULL THEN '{{}}'::jsonb
                             ELSE jsonb_build_object('wrapped_value', t.properties)
                         END AS "PROPERTIES",
-                        ST_GeomFromGeoJSON(COALESCE(t.properties->'location', '{"type": "Point", "coordinates": [0,0]}'::jsonb)::text) AS "GEOM"
+                        public.ST_GeomFromGeoJSON(
+                            COALESCE(
+                                CASE
+                                    WHEN jsonb_typeof(t.properties) = 'array' AND jsonb_array_length(t.properties) > 1 THEN t.properties->1->'location'
+                                    ELSE t.properties->'location'
+                                END,
+                                '{{"type": "Point", "coordinates": [0,0]}}'::jsonb
+                            )::text
+                        ) AS "GEOM"
                     FROM {schema}.thing t
                 """
                     ).format(schema=schema_id)
@@ -349,6 +425,11 @@ class TimeIODatabase:
                     sql.SQL('GRANT SELECT ON {schema}."OBSERVATIONS" TO PUBLIC').format(
                         schema=schema_id
                     )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        'GRANT SELECT ON {schema}."THINGS_LOCATIONS" TO PUBLIC'
+                    ).format(schema=schema_id)
                 )
                 cursor.execute(
                     sql.SQL('GRANT SELECT ON {schema}."DATASTREAMS" TO PUBLIC').format(
@@ -427,8 +508,8 @@ class TimeIODatabase:
                 # Map 'CsvParser' to 'csvparser'
                 normalized_name = type_name.lower()
                 cursor.execute(
-                    "SELECT id FROM config_db.file_parser_type WHERE name = %s", 
-                    (normalized_name,)
+                    "SELECT id FROM config_db.file_parser_type WHERE name = %s",
+                    (normalized_name,),
                 )
                 row = cursor.fetchone()
                 if row:
@@ -438,21 +519,25 @@ class TimeIODatabase:
             connection.close()
 
     def create_parser(
-        self, name: str, group_id: str, settings: Dict[str, Any], type_name: str = "CsvParser"
+        self,
+        name: str,
+        group_id: str,
+        settings: Dict[str, Any],
+        type_name: str = "CsvParser",
     ) -> int:
         """
         Create a new parser configuration in config_db.
-        
+
         Args:
             name: Parser name
             group_id: Keycloak Group ID (Project UUID)
             settings: Dictionary matching CsvParserSettings
-            
+
         Returns:
             New Parser ID
         """
         import uuid as uuid_pkg
-        
+
         connection = self._get_connection()
         try:
             with connection.cursor() as cursor:
@@ -477,14 +562,17 @@ class TimeIODatabase:
                     "skiprows": settings.get("exclude_headlines", 0),
                     "skipfooter": settings.get("exclude_footlines", 0),
                     "timestamp_columns": settings.get("timestamp_columns", []),
-                    "header": 0, # Default to 0 based on create_thing_config example
+                    "header": 0,  # Default to 0 based on create_thing_config example
                     "comment": "#",
                 }
                 if settings.get("pandas_read_csv"):
                     params["pandas_read_csv"] = settings.get("pandas_read_csv")
-                
+
                 # 4. Upsert Parser (Manual check due to missing UNIQUE constraint on uuid)
-                cursor.execute("SELECT id FROM config_db.file_parser WHERE uuid = %s", (parser_uuid,))
+                cursor.execute(
+                    "SELECT id FROM config_db.file_parser WHERE uuid = %s",
+                    (parser_uuid,),
+                )
                 existing_row = cursor.fetchone()
 
                 if existing_row:
@@ -495,7 +583,7 @@ class TimeIODatabase:
                         SET name = %s, params = %s, file_parser_type_id = %s
                         WHERE id = %s
                         """,
-                        (name, json.dumps(params), type_id, parser_id)
+                        (name, json.dumps(params), type_id, parser_id),
                     )
                     logger.info(f"Updated existing parser '{name}' (ID: {parser_id})")
                 else:
@@ -505,15 +593,17 @@ class TimeIODatabase:
                         VALUES (%s, %s, %s, %s)
                         RETURNING id
                         """,
-                        (type_id, name, json.dumps(params), parser_uuid)
+                        (type_id, name, json.dumps(params), parser_uuid),
                     )
                     parser_id = cursor.fetchone()[0]
                     logger.info(f"Created new parser '{name}' (ID: {parser_id})")
-                
+
                 connection.commit()
-                logger.info(f"Created parser '{name}' (ID: {parser_id}) for project {group_id}")
+                logger.info(
+                    f"Created parser '{name}' (ID: {parser_id}) for project {group_id}"
+                )
                 return parser_id
-                
+
         except Exception as e:
             connection.rollback()
             logger.error(f"Failed to create parser: {e}")
@@ -537,70 +627,84 @@ class TimeIODatabase:
         # But "Unused" parsers created via API? We can't easily find them if we rely only on the UUID hash.
         # Wait, create_thing_config: `uuid_base = f"{parser['name']}{proj_uuid}"`.
         # If we list ALL parsers, we can't tell which ones belong to which project easily.
-        
+
         # User requirement: "input should be our water-dp-api project_uuid which should be used to resolve group".
         # If I can't filter by group in DB, I return ALL?
         # Or I add a column/table?
         # I can't change schema easily (migrations).
-        
+
         # Alternative: We store the project_id in `params`?
-        
+
         # For now, I will list ALL parsers and filter in Python if possible,
         # OR just list logic:
         # User can only see parsers linked to Things in their project?
         # The user wants to CREATE a parser then Link it.
         # If I return all parsers, it might be messy.
-        
+
         # Let's verify `file_parser` columns again. Maybe I missed `project_id`?
         # configdb.py: columns=["file_parser_type_id", "name", "params", "uuid"]
         # No project_id.
-        
+
         # WORKAROUND:
         # Query `file_parser`.
         # For each parser, try to match UUID check against `uuid5(name + group_id)`.
         # If match, it belongs to this group.
         # This is CPU intensive if many parsers, but for current scale likely fine.
-        
+
         import uuid as uuid_pkg
-        
+
         connection = self._get_connection()
         try:
             with connection.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(
                     """
-                    SELECT 
+                    SELECT
                         fp.id, fp.name, fp.params, fp.uuid, fpt.name as type
                     FROM config_db.file_parser fp
                     JOIN config_db.file_parser_type fpt ON fp.file_parser_type_id = fpt.id
                     """
                 )
                 rows = cursor.fetchall()
-                
+
                 results = []
                 for row in rows:
                     # Check if this parser belongs to the requested group
                     # Reconstruct UUID
                     if group_id:
-                        expected_uuid = str(uuid_pkg.uuid5(uuid_pkg.NAMESPACE_DNS, f"{row['name']}{group_id}"))
+                        expected_uuid = str(
+                            uuid_pkg.uuid5(
+                                uuid_pkg.NAMESPACE_DNS, f"{row['name']}{group_id}"
+                            )
+                        )
                         if expected_uuid != str(row["uuid"]):
-                            continue # Skip if uuid doesn't match this group derivation
-                    
+                            continue  # Skip if uuid doesn't match this group derivation
+
                     # Map params back to settings schema
-                    params = row["params"] if isinstance(row["params"], dict) else json.loads(row["params"])
-                    
-                    results.append({
-                        "id": row["id"],
-                        "name": row["name"],
-                        "group_id": group_id, # Can't know for sure if no group_id passed, but here we filtered
-                        "type": "CsvParser" if row["type"] == "csvparser" else row["type"],
-                        "settings": {
-                            "delimiter": params.get("delimiter"),
-                            "exclude_headlines": params.get("skiprows"),
-                            "exclude_footlines": params.get("skipfooter"),
-                            "timestamp_columns": params.get("timestamp_columns"),
-                            "pandas_read_csv": params.get("pandas_read_csv")
+                    params = (
+                        row["params"]
+                        if isinstance(row["params"], dict)
+                        else json.loads(row["params"])
+                    )
+
+                    results.append(
+                        {
+                            "id": row["id"],
+                            "name": row["name"],
+                            "group_id": group_id,  # Can't know for sure if no group_id passed, but here we filtered
+                            "type": (
+                                "CsvParser"
+                                if row["type"] == "csvparser"
+                                else row["type"]
+                            ),
+                            "settings": {
+                                "delimiter": params.get("delimiter"),
+                                "exclude_headlines": params.get("skiprows"),
+                                "exclude_footlines": params.get("skipfooter"),
+                                "timestamp_columns": params.get("timestamp_columns"),
+                                "pandas_read_csv": params.get("pandas_read_csv"),
+                            },
                         }
-                    })
+                    )
                 return results
         finally:
             connection.close()
@@ -615,38 +719,41 @@ class TimeIODatabase:
                 # 1. Find Thing ID and S3 Store ID from config_db.thing
                 cursor.execute(
                     "SELECT s3_store_id FROM config_db.thing WHERE uuid = %s",
-                    (thing_uuid,)
+                    (thing_uuid,),
                 )
                 row = cursor.fetchone()
                 if not row:
                     logger.warning(f"Thing {thing_uuid} not found in config_db")
                     return False
                 s3_store_id = row[0]
-                
+
                 if not s3_store_id:
-                     logger.warning(f"Thing {thing_uuid} has no S3 store")
-                     return False
+                    logger.warning(f"Thing {thing_uuid} has no S3 store")
+                    return False
 
                 # 2. Update S3 Store with new parser_id
                 cursor.execute(
                     "UPDATE config_db.s3_store SET file_parser_id = %s WHERE id = %s",
-                    (parser_id, s3_store_id)
+                    (parser_id, s3_store_id),
                 )
                 connection.commit()
-                logger.info(f"Linked thing {thing_uuid} (S3 Store {s3_store_id}) to parser {parser_id}")
+                logger.info(
+                    f"Linked thing {thing_uuid} (S3 Store {s3_store_id}) to parser {parser_id}"
+                )
                 return True
         except Exception as e:
             connection.rollback()
-            logger.error(f"Failed to link thing {thing_uuid} to parser {parser_id}: {e}")
+            logger.error(
+                f"Failed to link thing {thing_uuid} to parser {parser_id}: {e}"
+            )
             return False
         finally:
             connection.close()
 
     # Deprecated / Revert helpers
     # def create_legacy_thing... (Removed as we pivot to config_db)
-    
-    # ========== Schema Management ==========
 
+    # ========== Schema Management ==========
 
     def resolve_project_name_by_group_id(self, group_uuid: str) -> Optional[str]:
         """
@@ -852,7 +959,9 @@ class TimeIODatabase:
                 target_id = sql.Identifier(target_schema)
 
                 # Create target schema if not exists
-                cursor.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(target_id))
+                cursor.execute(
+                    sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(target_id)
+                )
                 logger.info(f"Created schema '{target_schema}'")
 
                 # Get list of tables from source schema
@@ -963,7 +1072,9 @@ class TimeIODatabase:
         finally:
             connection.close()
 
-    def create_legacy_thing(self, uuid: str, name: str, description: str = "") -> Optional[int]:
+    def create_legacy_thing(
+        self, uuid: str, name: str, description: str = ""
+    ) -> Optional[int]:
         """
         Create a Thing record in the legacy tsm_thing table.
         Required for associating Parsers.
@@ -972,22 +1083,24 @@ class TimeIODatabase:
         try:
             with connection.cursor() as cursor:
                 # Check if exists first
-                cursor.execute("SELECT id FROM public.tsm_thing WHERE thing_id = %s", (uuid,))
+                cursor.execute(
+                    "SELECT id FROM public.tsm_thing WHERE thing_id = %s", (uuid,)
+                )
                 row = cursor.fetchone()
                 if row:
                     return row[0]
 
                 # Create
                 # We default group to 1 (admins/public) because we lack the legacy auth group mapping
-                # datasource_type='MQTT' or custom? 
+                # datasource_type='MQTT' or custom?
                 cursor.execute(
                     """
-                    INSERT INTO public.tsm_thing 
+                    INSERT INTO public.tsm_thing
                     (thing_id, name, description, "group", datasource_type)
                     VALUES (%s, %s, %s, 1, 'MQTT')
                     RETURNING id
                     """,
-                    (uuid, name, description)
+                    (uuid, name, description),
                 )
                 thing_id = cursor.fetchone()[0]
                 connection.commit()
@@ -998,8 +1111,177 @@ class TimeIODatabase:
             return None
         finally:
             connection.close()
-            
+
     # ========== User Management ==========
+
+    def delete_thing_cascade(self, thing_uuid: str, known_schema: str = None) -> bool:
+        """
+        Delete a thing and all its related data (Cascading).
+        """
+        schema = known_schema or self.get_thing_schema(thing_uuid)
+        logger.info(f"delete_thing_cascade: UUID={thing_uuid}, Schema={schema}")
+        connection = self._get_connection()
+        try:
+            with connection.cursor() as cursor:
+                # 1. Project DB Deletion (if schema exists)
+                if schema and self.check_schema_exists(schema):
+                    logger.info(f"Schema {schema} exists. Attempting cascading delete.")
+                    schema_id = sql.Identifier(schema)
+
+                    # Delete Observations (via Datastream)
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            DELETE FROM {schema}.observation o
+                            USING {schema}.datastream d, {schema}.thing t
+                            WHERE o.datastream_id = d.id AND d.thing_id = t.id AND t.uuid = %s
+                        """
+                        ).format(schema=schema_id),
+                        [thing_uuid],
+                    )
+
+                    # Delete Datastreams
+                    cursor.execute(
+                        sql.SQL(
+                            """
+                            DELETE FROM {schema}.datastream d
+                            USING {schema}.thing t
+                            WHERE d.thing_id = t.id AND t.uuid = %s
+                        """
+                        ).format(schema=schema_id),
+                        [thing_uuid],
+                    )
+
+                    # Delete Thing Locations (Join table)
+                    try:
+                        cursor.execute("SAVEPOINT delete_locations")
+                        cursor.execute(
+                            sql.SQL(
+                                """
+                                DELETE FROM {schema}.thing_location tl
+                                USING {schema}.thing t
+                                WHERE tl.thing_id = t.id AND t.uuid = %s
+                            """
+                            ).format(schema=schema_id),
+                            [thing_uuid],
+                        )
+                        cursor.execute("RELEASE SAVEPOINT delete_locations")
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to delete thing_locations (ignoring): {e}"
+                        )
+                        cursor.execute("ROLLBACK TO SAVEPOINT delete_locations")
+
+                    # Delete Journal (if exists)
+                    try:
+                        cursor.execute("SAVEPOINT delete_journal")
+                        cursor.execute(
+                            sql.SQL(
+                                """
+                                DELETE FROM {schema}.journal j
+                                USING {schema}.thing t
+                                WHERE j.thing_id = t.id AND t.uuid = %s
+                            """
+                            ).format(schema=schema_id),
+                            [thing_uuid],
+                        )
+                        cursor.execute("RELEASE SAVEPOINT delete_journal")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete journal (ignoring): {e}")
+                        cursor.execute("ROLLBACK TO SAVEPOINT delete_journal")
+
+                    # Delete Thing
+                    cursor.execute(
+                        sql.SQL("DELETE FROM {schema}.thing WHERE uuid = %s").format(
+                            schema=schema_id
+                        ),
+                        [thing_uuid],
+                    )
+                    logger.info(f"Deleted Thing row count: {cursor.rowcount}")
+                    logger.info(f"Deleted thing {thing_uuid} from schema {schema}")
+
+                # 2. Public Tables (SMS)
+                try:
+                    cursor.execute("SAVEPOINT delete_sms")
+                    cursor.execute(
+                        "DELETE FROM public.sms_datastream_link WHERE thing_id = %s",
+                        [thing_uuid],
+                    )
+                    cursor.execute("RELEASE SAVEPOINT delete_sms")
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to delete sms_datastream_link (ignoring): {e}"
+                    )
+                    cursor.execute("ROLLBACK TO SAVEPOINT delete_sms")
+
+                # 3. Schema Mapping
+                cursor.execute(
+                    "DELETE FROM public.schema_thing_mapping WHERE thing_uuid = %s",
+                    [thing_uuid],
+                )
+
+                connection.commit()
+
+        except Exception as e:
+            connection.rollback()
+            logger.error(
+                f"Failed to delete thing {thing_uuid} from Project/Public DB: {e}"
+            )
+
+        # 4. ConfigDB Deletion
+        admin_conn = self._get_admin_connection()
+        try:
+            with admin_conn.cursor() as cursor:
+                # Get Config IDs before deleting thing
+                cursor.execute(
+                    "SELECT mqtt_id, s3_store_id FROM config_db.thing WHERE uuid = %s",
+                    [thing_uuid],
+                )
+                row = cursor.fetchone()
+                if row:
+                    mqtt_id, s3_id = row
+
+                    # Delete Thing
+                    cursor.execute(
+                        "DELETE FROM config_db.thing WHERE uuid = %s", [thing_uuid]
+                    )
+
+                    # Delete MQTT
+                    if mqtt_id:
+                        cursor.execute(
+                            "DELETE FROM config_db.mqtt WHERE id = %s", [mqtt_id]
+                        )
+
+                    # Delete S3 Store
+                    if s3_id:
+                        # Get Parser ID
+                        cursor.execute(
+                            "SELECT file_parser_id FROM config_db.s3_store WHERE id = %s",
+                            [s3_id],
+                        )
+                        s3_row = cursor.fetchone()
+
+                        cursor.execute(
+                            "DELETE FROM config_db.s3_store WHERE id = %s", [s3_id]
+                        )
+
+                        if s3_row and s3_row[0]:
+                            # Delete Parser
+                            cursor.execute(
+                                "DELETE FROM config_db.file_parser WHERE id = %s",
+                                [s3_row[0]],
+                            )
+
+                admin_conn.commit()
+                logger.info(f"Deleted thing {thing_uuid} from ConfigDB")
+                return True
+
+        except Exception as e:
+            admin_conn.rollback()
+            logger.error(f"Failed to delete thing {thing_uuid} from ConfigDB: {e}")
+            return False
+        finally:
+            admin_conn.close()
 
     def check_user_exists(self, username: str) -> bool:
         """Check if a database user exists."""
@@ -1007,6 +1289,30 @@ class TimeIODatabase:
         try:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (username,))
+                return bool(cursor.fetchone())
+        finally:
+            connection.close()
+
+    def check_thing_exists(self, uuid: str) -> bool:
+        """Check if a thing UUID already exists in config_db or tsm_thing."""
+        connection = self._get_admin_connection()
+        try:
+            with connection.cursor() as cursor:
+                # Check config_db
+                cursor.execute("SELECT 1 FROM config_db.thing WHERE uuid = %s", [uuid])
+                return bool(cursor.fetchone())
+        finally:
+            connection.close()
+
+    def check_schema_exists(self, schema_name: str) -> bool:
+        """Check if a schema exists in the database."""
+        connection = self._get_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT 1 FROM information_schema.schemata WHERE schema_name = %s",
+                    [schema_name],
+                )
                 return bool(cursor.fetchone())
         finally:
             connection.close()
@@ -1119,6 +1425,47 @@ class TimeIODatabase:
             logger.error(f"Error ensuring FROST user: {error}")
             return False
 
+    def get_last_observation_times(
+        self, schema: str, thing_uuids: List[str]
+    ) -> Dict[str, str]:
+        """
+        Efficiently fetch MAX(phenomenon_time) for a list of things in a single query.
+        Returns a dict mapping thing_uuid -> isoformat timestamp string.
+        """
+        if not thing_uuids:
+            return {}
+
+        connection = self._get_connection()
+        try:
+            with connection.cursor() as cursor:
+                # We need to join thing -> datastream -> observation
+                # Or thing -> datastream and check observation table using datastream_id
+
+                # Assuming table names are simply "thing", "datastream", "observation" in the dynamic schema
+                query = f"""
+                    SELECT t.uuid, MAX(o.result_time)
+                    FROM "{schema}".thing t
+                    JOIN "{schema}".datastream d ON d.thing_id = t.id
+                    JOIN "{schema}".observation o ON o.datastream_id = d.id
+                    WHERE t.uuid = ANY(%s::uuid[])
+                    GROUP BY t.uuid
+                """
+                cursor.execute(query, [thing_uuids])
+                rows = cursor.fetchall()
+
+                result = {}
+                for row in rows:
+                    if row[1]:
+                        # Ensure ISO format string
+                        result[str(row[0])] = row[1].isoformat()
+                return result
+
+        except Exception as error:
+            logger.error(f"Failed to fetch last observation times: {error}")
+            return {}  # Fail gracefully (return empty dict means no updates shown)
+        finally:
+            connection.close()
+
     # ========== ConfigDB Management (v3) ==========
 
     def _get_admin_connection(self):
@@ -1162,7 +1509,9 @@ class TimeIODatabase:
         try:
             with connection.cursor() as cursor:
                 # 1. Check if project exists by UUID
-                cursor.execute("SELECT id FROM config_db.project WHERE uuid = %s", [uuid])
+                cursor.execute(
+                    "SELECT id FROM config_db.project WHERE uuid = %s", [uuid]
+                )
                 result = cursor.fetchone()
                 if result:
                     return result[0]
@@ -1228,13 +1577,16 @@ class TimeIODatabase:
         description: str = "",
         properties: Optional[Dict[str, Any]] = None,
         mqtt_device_type_name: str = "chirpstack_generic",
+        schema_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create thing and related records in config_db."""
         connection = self._get_admin_connection()
         try:
             with connection.cursor() as cursor:
                 # 1. Get constant IDs
-                cursor.execute("SELECT id FROM config_db.ingest_type WHERE name = 'mqtt'")
+                cursor.execute(
+                    "SELECT id FROM config_db.ingest_type WHERE name = 'mqtt'"
+                )
                 ingest_type_id = cursor.fetchone()[0]
 
                 # Ensure mqtt_device_type exists
@@ -1321,6 +1673,17 @@ class TimeIODatabase:
                 )
                 thing_id = cursor.fetchone()[0]
 
+                # 5. Create Schema-Thing Mapping (Critical for TSM lookup)
+                if schema_name:
+                    cursor.execute(
+                        """
+                        INSERT INTO public.schema_thing_mapping (schema, thing_uuid)
+                        VALUES (%s, %s)
+                        ON CONFLICT (thing_uuid) DO NOTHING
+                        """,
+                        [schema_name, uuid],
+                    )
+
                 connection.commit()
                 return {
                     "id": thing_id,
@@ -1375,6 +1738,9 @@ class TimeIODatabase:
                 connection.commit()
         except Exception as error:
             connection.rollback()
+            if "materialized view" in str(error).lower():
+                logger.info(f"Skipping legacy SMS metadata registration (materialized view): {error}")
+                return False
             logger.error(f"Failed to register sensor metadata: {error}")
             raise
         finally:
@@ -1416,29 +1782,68 @@ class TimeIODatabase:
             connection.close()
 
     def update_thing_properties(
-        self, thing_uuid: str, properties: Dict[str, Any]
+        self, schema: Optional[str], thing_uuid: str, updates: Dict[str, Any]
     ) -> bool:
-        """Update thing properties directly in the database."""
-        schema = self.get_thing_schema(thing_uuid)
+        """
+        Directly update Thing properties in the database (Bypassing FROST Views).
+
+        Args:
+            schema: Database schema name
+            thing_uuid: Thing UUID
+            updates: Dictionary containing fields to update (name, description, properties)
+        """
         if not schema:
-            logger.error(f"Could not find schema for thing {thing_uuid}")
+            schema = self.get_thing_schema(thing_uuid)
+
+        if not schema:
+            logger.error(f"Cannot update thing {thing_uuid}: schema not resolved")
             return False
 
+        logger.info(
+            f"TimeIODatabase.update_thing_properties called for {thing_uuid} in {schema}"
+        )
         connection = self._get_connection()
         try:
             with connection.cursor() as cursor:
-                # Use jsonb concatenation to merge properties
-                query = sql.SQL(
-                    "UPDATE {schema}.thing SET properties = properties || %s::jsonb WHERE uuid = %s"
-                ).format(schema=sql.Identifier(schema))
+                # 1. Build dynamic update query
+                set_clauses = []
+                values = []
 
-                cursor.execute(query, [json.dumps(properties), thing_uuid])
+                if "name" in updates:
+                    set_clauses.append("name = %s")
+                    values.append(updates["name"])
+
+                if "description" in updates:
+                    set_clauses.append("description = %s")
+                    values.append(updates["description"])
+
+                if "properties" in updates:
+                    # Merge properties logic is complex in SQL if we want to be safe.
+                    # But here we assume `project_service` has already merged old+new properties.
+                    # So we just replace the jsonb.
+                    set_clauses.append("properties = %s")
+                    values.append(json.dumps(updates["properties"]))
+
+                if not set_clauses:
+                    return True  # Nothing to update
+
+                values.append(thing_uuid)
+
+                query = sql.SQL(
+                    "UPDATE {schema}.thing SET {updates} WHERE uuid = %s"
+                ).format(
+                    schema=sql.Identifier(schema),
+                    updates=sql.SQL(", ").join(map(sql.SQL, set_clauses)),
+                )
+
+                cursor.execute(query, values)
                 connection.commit()
-                return True
-        except Exception as error:
+                return cursor.rowcount > 0
+
+        except Exception as e:
             connection.rollback()
-            logger.error(f"Failed to update thing properties: {error}")
-            return False
+            logger.error(f"Failed to update thing {thing_uuid} in schema {schema}: {e}")
+            raise
         finally:
             connection.close()
 
@@ -1497,6 +1902,60 @@ class TimeIODatabase:
         finally:
             connection.close()
 
+    def get_project_uuid_by_schema(self, schema_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get project UUID and Name by schema name.
+        Join config_db.project and config_db.database.
+        """
+        connection = self._get_admin_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT p.uuid, p.name
+                    FROM config_db.project p
+                    JOIN config_db.database d ON p.database_id = d.id
+                    WHERE d.schema = %s
+                    """,
+                    [schema_name],
+                )
+                row = cursor.fetchone()
+                if row:
+                    return {"uuid": row[0], "name": row[1]}
+                return None
+        finally:
+            connection.close()
+
+    def get_database_config(self, schema_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get database configuration (including encrypted credentials) for a schema.
+        Used to reuse credentials for existing projects.
+        """
+        connection = self._get_admin_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT d.user, d.password, d.ro_user, d.ro_password, d.url, d.ro_url
+                    FROM config_db.database d
+                    WHERE d.schema = %s
+                    """,
+                    [schema_name],
+                )
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        "username": row[0],
+                        "password": row[1],
+                        "ro_username": row[2],
+                        "ro_password": row[3],
+                        "url": row[4],
+                        "ro_url": row[5],
+                    }
+                return None
+        finally:
+            connection.close()
+
     def ensure_datastreams_in_project_db(
         self, schema: str, thing_uuid: str, properties: List[Dict[str, str]]
     ):
@@ -1526,11 +1985,14 @@ class TimeIODatabase:
                     unit = prop.get("unit", "Unknown")
                     ds_props = json.dumps(
                         {
+                            "unit_name": unit,
+                            "unit_symbol": unit,
+                            "unit_definition": unit,
                             "unitOfMeasurement": {
                                 "name": unit,
                                 "symbol": unit,
                                 "definition": unit,
-                            }
+                            },
                         }
                     )
 
@@ -1606,7 +2068,9 @@ class TimeIODatabase:
                 cursor.execute(query, [uuids, skip, limit])
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as error:
-            logger.error(f"Failed to fetch sensors by UUIDs for schema {schema}: {error}")
+            logger.error(
+                f"Failed to fetch sensors by UUIDs for schema {schema}: {error}"
+            )
             return []
         finally:
             connection.close()
@@ -1647,122 +2111,9 @@ class TimeIODatabase:
                 cursor.execute(query)
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as error:
-            logger.error(f"Failed to fetch all sensors basic for schema {schema}: {error}")
-            return []
-        finally:
-            connection.close()
-
-    def get_sensors_rich(self, schema: str) -> List[Dict[str, Any]]:
-        """Fetch all sensors in a schema with human-readable datastream info."""
-        connection = self._get_connection()
-        try:
-            with connection.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                # Optimized query joining project schema with SMS link tables
-                query = sql.SQL(
-                    """
-                    SELECT
-                        t.uuid as thing_uuid,
-                        t.name as thing_name,
-                        t.description as thing_description,
-                        t.properties as thing_properties,
-                        loc.location as location_json,
-                        d.name as ds_name,
-                        d.properties as ds_properties,
-                        dp.unit_name as unit,
-                        dp.label as property_label,
-                        dma.label as action_label
-                    FROM {schema}.thing t
-                    LEFT JOIN {schema}.thing_location tl ON t.id = tl.thing_id
-                    LEFT JOIN {schema}.location loc ON tl.location_id = loc.id
-                    LEFT JOIN {schema}.datastream d ON t.id = d.thing_id
-                    LEFT JOIN public.sms_datastream_link sdl ON t.uuid = sdl.thing_id AND d.name = sdl.datastream_name
-                    LEFT JOIN public.sms_device_property dp ON sdl.device_property_id = dp.id
-                    LEFT JOIN public.sms_device_mount_action dma ON sdl.device_mount_action_id = dma.id
-                    ORDER BY t.name, d.name
-                    """
-                ).format(schema=sql.Identifier(schema))
-
-                cursor.execute(query)
-                rows = cursor.fetchall()
-
-                # Group by thing
-                things = {}
-                for row in rows:
-                    t_uuid = str(row["thing_uuid"])
-                    if t_uuid not in things:
-                        # Extract location from properties (GeoJSON or Legacy)
-                        props = row["thing_properties"] or {}
-                        # Ensure props is valid
-                        props = row["thing_properties"]
-                        
-                        # 1. Handle wrapped_value dict
-                        if isinstance(props, dict) and "wrapped_value" in props:
-                            props = props["wrapped_value"]
-                        
-                        # 2. Handle List properties (e.g. [null, dict]) from View or Wrapped
-                        if isinstance(props, list):
-                            found_dict = {}
-                            for item in props:
-                                if isinstance(item, dict):
-                                    found_dict = item
-                                    # Usually the last valid dict contains our location
-                            props = found_dict
-                        
-                        # 3. Final safety check
-                        if not isinstance(props, dict):
-                            props = {}
-
-                        # Try props
-                        loc_props = props.get("location", {})
-                        if not isinstance(loc_props, dict):
-                            loc_props = {}
-                            
-                        lat = 0.0
-                        lon = 0.0
-                        
-                        # Try FROST Location Table (Fallback)
-                        loc_json = row["location_json"] or {}
-
-                        if isinstance(loc_json, dict) and loc_json.get("type") == "Point" and loc_json.get("coordinates"):
-                             lon, lat = loc_json["coordinates"]
-                        elif isinstance(loc_props, dict) and loc_props.get("type") == "Point" and loc_props.get("coordinates"):
-                            # GeoJSON in props
-                            lon, lat = loc_props["coordinates"]
-                        else:
-                            # Legacy in props
-                            lat = float(props.get("latitude") or loc_props.get("latitude") or 0.0)
-                            lon = float(props.get("longitude") or loc_props.get("longitude") or 0.0)
-
-                        things[t_uuid] = {
-                            "uuid": t_uuid,
-                            "name": row["thing_name"],
-                            "description": row["thing_description"],
-                            "properties": props,
-                            "latitude": lat,
-                            "longitude": lon,
-                            "datastreams": [],
-                        }
-
-                    if row["ds_name"]:
-                        # Determine most descriptive label
-                        label = (
-                            row["property_label"]
-                            or row["action_label"]
-                            or row["ds_name"]
-                        )
-
-                        things[t_uuid]["datastreams"].append(
-                            {
-                                "name": row["ds_name"],
-                                "unit": row["unit"] or "Unknown",
-                                "label": label,
-                                "properties": row["ds_properties"],
-                            }
-                        )
-
-                return list(things.values())
-        except Exception as error:
-            logger.error(f"Failed to fetch rich sensors for schema {schema}: {error}")
+            logger.error(
+                f"Failed to fetch all sensors basic for schema {schema}: {error}"
+            )
             return []
         finally:
             connection.close()
@@ -1810,18 +2161,24 @@ class TimeIODatabase:
                     "description": rows[0]["thing_description"],
                     "properties": rows[0]["thing_properties"],
                     "datastreams": [],
-                    "location": None
+                    "location": None,
                 }
 
                 for row in rows:
                     if row["ds_name"]:
-                         label = row["property_label"] or row["action_label"] or row["ds_name"]
-                         res["datastreams"].append({
-                             "name": row["ds_name"],
-                             "unit": row["unit"] or "Unknown",
-                             "label": label,
-                             "properties": row["ds_properties"]
-                         })
+                        label = (
+                            row["property_label"]
+                            or row["action_label"]
+                            or row["ds_name"]
+                        )
+                        res["datastreams"].append(
+                            {
+                                "name": row["ds_name"],
+                                "unit": row["unit"] or "Unknown",
+                                "label": label,
+                                "properties": row["ds_properties"],
+                            }
+                        )
 
                 # 2. Extract Location from thing_properties if available (Primary source in TimeIO)
                 thing_properties = rows[0]["thing_properties"]
@@ -1833,16 +2190,16 @@ class TimeIODatabase:
                         res["location"] = {
                             "latitude": coords[1],
                             "longitude": coords[0],
-                            "encodingType": "application/vnd.geo+json"
+                            "encodingType": "application/vnd.geo+json",
                         }
                     # Handle flat structure (legacy fallback)
                     elif isinstance(loc_data, dict) and "latitude" in loc_data:
                         res["location"] = {
                             "latitude": loc_data["latitude"],
                             "longitude": loc_data["longitude"],
-                            "encodingType": "application/json"
+                            "encodingType": "application/json",
                         }
-                
+
                 # Helper for flattened access
                 if res["location"]:
                     res["latitude"] = res["location"]["latitude"]
@@ -1890,7 +2247,6 @@ class TimeIODatabase:
         finally:
             connection.close()
 
-
     def get_schema_from_uuid(self, uuid: str) -> Optional[str]:
         connection = self._get_admin_connection()
         try:
@@ -1920,7 +2276,9 @@ class TimeIODatabase:
         finally:
             connection.close()
 
-    def get_locations_from_project_uuid(self, project_uuid: str) -> Optional[List[Dict[str, Any]]]:
+    def get_locations_from_project_uuid(
+        self, project_uuid: str
+    ) -> Optional[List[Dict[str, Any]]]:
         connection = self._get_admin_connection()
         try:
             with connection.cursor() as cursor:

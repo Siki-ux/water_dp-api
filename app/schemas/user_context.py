@@ -68,9 +68,21 @@ class ProjectBase(PydanticBase):
 
 
 class ProjectCreate(ProjectBase):
-    authorization_provider_group_id: str = Field(
-        ..., description="Authorization Group ID from Keycloak"
+    # Support array from frontend (authorization_group_ids) 
+    # or single string (authorization_provider_group_id)
+    authorization_group_ids: Optional[List[str]] = Field(
+        default=None, description="Authorization Group IDs from Keycloak (array)"
     )
+    authorization_provider_group_id: Optional[str] = Field(
+        default=None, description="Authorization Group ID from Keycloak (single)"
+    )
+
+    @property
+    def resolved_group_id(self) -> Optional[str]:
+        """Get the group ID, preferring the array format from frontend."""
+        if self.authorization_group_ids and len(self.authorization_group_ids) > 0:
+            return self.authorization_group_ids[0]
+        return self.authorization_provider_group_id
 
 
 class ProjectUpdate(BaseModel):
@@ -91,8 +103,10 @@ class ProjectResponse(ProjectBase):
 
 
 class ProjectSensorResponse(BaseModel):
+    """Response when linking a sensor to a project."""
+
     project_id: UUID
-    sensor_id: str
+    thing_uuid: UUID
 
 
 class SensorLocation(BaseModel):

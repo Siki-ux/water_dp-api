@@ -52,20 +52,18 @@ async def get_dashboard(
 
 
 @router.put("/{dashboard_id}", response_model=DashboardResponse)
-def update_dashboard(
+async def update_dashboard(
     dashboard_id: UUID,
     dashboard_in: DashboardUpdate,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),
 ) -> Any:
     """Update dashboard."""
-    return DashboardService.update_dashboard(
-        database, dashboard_id, dashboard_in, user
-    )
+    return DashboardService.update_dashboard(database, dashboard_id, dashboard_in, user)
 
 
 @router.delete("/{dashboard_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_dashboard(
+async def delete_dashboard(
     dashboard_id: UUID,
     database: Session = Depends(get_db),
     user: dict = Depends(deps.get_current_user),

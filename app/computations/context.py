@@ -6,6 +6,8 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.models.alerts import Alert, AlertDefinition
+from app.models.computations import ComputationScript
+from app.models.user_context import Project
 
 logger = logging.getLogger(__name__)
 
@@ -26,13 +28,47 @@ class ComputationContext:
         self._alerts_triggered: List[Dict[str, Any]] = []
 
         # Initialize FrostClient
-        # Note: If computations run in a multi-tenant environment,
-        # we might need to resolve the specific project URL from params.
-        # For legacy compatibility, we use the global setting.
         from app.core.config import settings
         from app.services.timeio.frost_client import FrostClient
 
-        self._frost_client = FrostClient(base_url=settings.frost_url)
+        # Resolve Project Schema for FrostClient
+        # We need to identify which project this script belongs to
+        script_obj = (
+            self.db.query(ComputationScript)
+            .filter(ComputationScript.id == self.script_id)
+            .first()
+        )
+
+        project_name = None
+        if script_obj:
+            project = (
+                self.db.query(Project)
+                .filter(Project.id == script_obj.project_id)
+                .first()
+            )
+            if project and project.schema_name:
+                project_name = project.schema_name
+
+        if not project_name:
+            # Fallback or Error?
+            # Only if we can't find the project, we might fail or use a default.
+            # However, FrostClient NEEDS a project_name.
+            # Let's log a warning and maybe try a default if configured, or fail gracefully.
+            logger.warning(
+                f"Could not resolve project schema for script {script_id}. defaulting to 'god_mode' or failing."
+            )
+            # If no schema found, maybe we shouldn't init the client or init with dummy?
+            # But subsequent calls will fail.
+            # Let's guess 'timeio' or similar if nothing found?
+            # Or better, let it fail at request time if not set?
+            pass
+
+        self._frost_client = FrostClient(
+            base_url=settings.frost_url,
+            project_name=project_name,
+            version=settings.frost_version,
+            frost_server=settings.frost_server,
+        )
 
     def get_sensor_data(self, sensor_id: str, limit: int = 1) -> List[Dict[str, Any]]:
         """

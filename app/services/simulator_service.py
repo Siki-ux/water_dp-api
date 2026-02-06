@@ -7,21 +7,27 @@ Persists simulation configuration in local database.
 
 import logging
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import TimeSeriesException
 from app.models.simulation import Simulation
-from app.services.timeio.orchestrator_v3 import orchestrator_v3
+from app.models.user_context import Project
+from app.services.keycloak_service import KeycloakService
+from app.services.project_service import ProjectService
+from app.services.thing_service import ThingService
+from app.services.timeio.orchestrator import TimeIOOrchestrator
 
 logger = logging.getLogger(__name__)
 
 
 class SimulatorService:
     """
-    Service for managing simulated IoT devices via V3 with local config storage.
+    Service for managing simulated IoT devices via Native TSM Flow (Orchestrator).
     """
+
+    orchestrator = TimeIOOrchestrator()
 
     @staticmethod
     def _parse_interval_to_seconds(interval_str: str) -> int:
@@ -150,6 +156,29 @@ class SimulatorService:
                     }
                 )
 
+        # Resolve Location
+        location = None
+        loc_data = thing_data.get("location")
+        if loc_data:
+            # Check for Pydantic 'coordinates' dict or GeoJSON list
+            coords = loc_data.get("coordinates")
+            if isinstance(coords, dict):
+                location = {
+                    "lat": coords.get("latitude"),
+                    "lon": coords.get("longitude"),
+                }
+            elif isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                location = {"lat": coords[1], "lon": coords[0]}
+        
+        # Fallback to properties if location is missing (common in TSM flat storage)
+        if not location and thing_data.get("properties"):
+            props = thing_data.get("properties", {})
+            if "latitude" in props and "longitude" in props:
+                location = {
+                    "lat": props.get("latitude"),
+                    "lon": props.get("longitude")
+                }
+
         return {
             "thing_uuid": thing_data.get("uuid"),
             "thing_id": thing_data.get("id"),
@@ -159,6 +188,12 @@ class SimulatorService:
             "datastreams": formatted_datastreams,
             "is_running": is_running,
             "simulation_id": simulation_id,
+            "config": (
+                config[0]
+                if config and isinstance(config, list) and len(config) > 0
+                else {}
+            ),
+            "location": location,
         }
 
     @staticmethod
@@ -171,12 +206,18 @@ class SimulatorService:
         interval_seconds: int = 60,
         thing_properties: List[Dict[str, Any]] = None,
         location: Dict[str, float] = None,
+        project_schema: Optional[str] = None,
+        project_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Create a new Simulated Thing using V3 Orchestrator and save config locally.
+        Create a new Simulated Thing using TimeIOOrchestrator and save config locally.
+
+        Args:
+           project_schema: Database schema of the project (if known)
+           project_name: Name of the project (if known)
         """
 
-        # 1. format name
+        # 1. Format Name
         full_name = (
             f"Simulated: {sensor_name}"
             if not sensor_name.startswith("Simulated:")
@@ -184,32 +225,54 @@ class SimulatorService:
         )
 
         # 2. Extract metadata for SSM creation
-        # Prefer explicit thing_properties if provided (V3 style)
-        properties_metadata = []
+        properties_metadata = {}  # Format: {name: unit}
+        # Note: TimeIOOrchestrator expects Dict[name, unit] or similar for simple properties
+        # But wait, it also takes 'properties' list for metadata registration
+
+        # New Orchestrator takes: properties: Dict[str, Any]
+        # And creates datastreams based on them.
+
+        # Helper to convert List[Dict] (v3) to Dict[name, unit] (v1/new)
+        # OR we pass rich structure if orchestrator handles it?
+        # Orchestrator logic: flat_props = [{"name": k, "unit": str(v)} for k, v in properties.items()]
+        # So it expects key-value.
 
         if thing_properties:
-            properties_metadata = thing_properties
+            for p in thing_properties:
+                properties_metadata[p["name"]] = p.get("unit", "Unknown")
         else:
-            # Fallback for V1 legacy: derive from config
             for ds in datastreams_config:
-                properties_metadata.append(
-                    {
-                        "name": ds.get("name"),
-                        "unit": ds.get("unit", "Unknown"),
-                        "label": ds.get("label", ds.get("name")),
-                    }
-                )
+                properties_metadata[ds.get("name")] = ds.get("unit", "Unknown")
 
-        # 3. Create Sensor via OrchestratorV3
-        # This handles TSM/ConfigDB creation and Legacy Sync
+        # 3. Resolve Project Name for Fallback
+        # If schema is missing OR name is missing, we might need Keycloak
+        # But we only need 'project_group' name if schema is missing or lookup fails.
+
+        final_project_name = project_name
+        if not final_project_name:
+            # Try resolve from Keycloak Group ID (V3 Legacy)
+            try:
+                # We need to instantiate KeycloakService if not static
+                # SimulatorService didn't use instance before.
+                # KeycloakService methods are classmethods.
+                k_group = KeycloakService.get_group(project_group_id)
+                if k_group and k_group.get("name"):
+                    raw = k_group["name"]
+                    # "UFZ-TSM:Foo" -> "Foo"
+                    final_project_name = raw.split(":")[-1].split("/")[-1]
+            except Exception as e:
+                logger.warning(f"Failed to resolve name from Keycloak: {e}")
+                final_project_name = "unknown_project"
+
+        # 4. Create Sensor via New Orchestrator
         try:
-            result = orchestrator_v3.create_sensor(
+            result = SimulatorService.orchestrator.create_sensor(
+                project_group=final_project_name,  # Acts as fallback name
+                project_schema=project_schema,
                 sensor_name=full_name,
-                project_group_id=project_group_id,
                 description=description,
-                device_type="chirpstack_generic",
                 properties=properties_metadata,
-                location=location,
+                geometry=location,
             )
 
             if not result or not result.get("uuid"):
@@ -217,14 +280,13 @@ class SimulatorService:
 
             thing_uuid = result["uuid"]
 
-            # 4. Save Simulation Config to Local DB
-            # Calculate Min Interval
+            # 5. Save Simulation Config to Local DB
             calc_interval = SimulatorService._calculate_min_interval(datastreams_config)
 
             new_sim = Simulation(
                 id=str(uuid.uuid4()),
                 thing_uuid=thing_uuid,
-                config=datastreams_config,  # JSONB
+                config=datastreams_config,
                 interval_seconds=calc_interval,
                 is_enabled=True,
             )
@@ -264,12 +326,9 @@ class SimulatorService:
 
         # Import inside to avoid circular deps
         from app.models.user_context import project_sensors
-        from app.services.project_service import (
-            ProjectService,
-        )
 
         # Get sensor IDs linked to project
-        stmt = select(project_sensors.c.sensor_id).where(
+        stmt = select(project_sensors.c.thing_uuid).where(
             project_sensors.c.project_id == project_id
         )
         linked_uuids = [str(r) for r in db.execute(stmt).scalars().all()]
@@ -281,7 +340,7 @@ class SimulatorService:
         sims = (
             db.query(Simulation).filter(Simulation.thing_uuid.in_(linked_uuids)).all()
         )
-        sim_map = {s.thing_uuid: s for s in sims}
+        sim_map = {str(s.thing_uuid): s for s in sims}
 
         if not sims:
             return []
@@ -289,42 +348,68 @@ class SimulatorService:
         # 3. Fetch Metadata from Orchestrator (optional, for enriched view)
         project = ProjectService.get_project(
             db,
-            project_id,
+            project_id=project_id,
             user={"sub": "internal", "realm_access": {"roles": ["admin"]}},
-        )
+        )  # Need project for schema name
 
+        # 4. Get TSM/FROST things
+        # We need to list things that match the UUIDs we have
+        # Orchestrator's list_sensors does not take a list of UUIDs, it lists all for schema
+        # So we fetch all (or filtered by schema) and filter by our list
+        tsm_things = []
         if project:
-            # We fetch ALL sensors to get metadata, then filter.
-            # Ideally Orchestrator V3 would support list_by_uuids.
-            # We can use `list_sensors` (Returns Rich objects).
-            tsm_things = orchestrator_v3.list_sensors(
-                project_name=project.name,
-                project_group=project.authorization_provider_group_id,
-            )
+            try:
+                ts = ThingService(project.schema_name)
+                things_objects = ts.get_things(expand=["Locations", "Datastreams"])
+
+                # Map Thing objects to Dicts compatible with Simulator logic
+                tsm_things = []
+                for t in things_objects:
+                    t_dict = t.dict()
+                    # Mapping compatibility
+                    t_dict["uuid"] = t_dict.get("sensor_uuid")
+                    t_dict["id"] = t_dict.get("thing_id")
+
+                    # Ensure UUID is string for comparison
+                    if t_dict.get("uuid"):
+                        t_dict["uuid"] = str(t_dict["uuid"])
+
+                    tsm_things.append(t_dict)
+
+            except Exception as e:
+                logger.error(f"Failed to list sensors via ThingService: {e}")
+                tsm_things = []
         else:
             tsm_things = []
 
         results = []
         # Filter TSM things by our simulation map
         for thing in tsm_things:
-            t_uuid = str(thing.get("uuid"))
-            if t_uuid in sim_map:
-                sim = sim_map[t_uuid]
-                # Use Helper to Format
-                formatted = SimulatorService._format_simulation_output(
-                    thing_data=thing, sim=sim
+            try:
+                t_uuid = str(thing.get("uuid"))
+                if t_uuid in sim_map:
+                    sim = sim_map[t_uuid]
+                    # Use Helper to Format
+                    formatted = SimulatorService._format_simulation_output(
+                        thing_data=thing, sim=sim
+                    )
+                    results.append(formatted)
+            except Exception as e:
+                logger.error(
+                    f"Failed to format simulation output for thing {thing.get('uuid')}: {e}"
                 )
-                results.append(formatted)
+                continue
 
         return results
 
     @staticmethod
     def update_simulation_config(
         thing_id: str,
-        config: Dict[str, Any],
+        config: Union[Dict[str, Any], List[Dict[str, Any]]],
         token: str,
         name: str = None,
         location: Dict[str, float] = None,
+        is_enabled: bool = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Update simulation config and optionally TSM metadata.
@@ -340,28 +425,29 @@ class SimulatorService:
                 sim = db.query(Simulation).filter(Simulation.id == thing_id).first()
 
             if sim:
-                if config:
+                if config is not None:
                     sim.config = config
                     # Recalculate Interval
                     sim.interval_seconds = SimulatorService._calculate_min_interval(
                         config
                     )
 
-                    # Update is_enabled if present in config?
-                    if "is_running" in config:
-                        sim.is_enabled = config["is_running"]
-                    elif "enabled" in config:
-                        sim.is_enabled = config["enabled"]
+                    # Update is_enabled if explicit arg, else try extracting
+                    if is_enabled is not None:
+                        sim.is_enabled = is_enabled
+                    elif isinstance(config, dict):
+                        if "is_running" in config:
+                            sim.is_enabled = config["is_running"]
+                        elif "enabled" in config:
+                            sim.is_enabled = config["enabled"]
 
                 db.commit()
                 db.refresh(sim)
 
             # 2. Update TSM Metadata (Name, Location) via Orchestrator
             if name or location:
-                # We need the project schema to update location?
-                # OrchestratorV3 update_sensor_location needs schema.
-                # This might be complex without project context.
-                # Attempt update if possible.
+                # TODO: Implement TSM update if needed.
+                # For now, we assume local config is the primary simulation driver.
                 pass
 
             return {"uuid": thing_id, "config": config, "message": "Updated"}
@@ -396,9 +482,28 @@ class SimulatorService:
                 db.commit()
 
             # 2. Delete from TSM via Orchestrator
-            # We need project details to resolve schema for TSM deletion if needed?
-            # OrchestratorV3.delete_sensor needs UUID.
-            orchestrator_v3.delete_sensor(uuid_to_delete)
+            # Resolve schema from project ID to ensure cascading delete works even if mapping is missing
+            project_schema = None
+            if project_id:
+                try:
+                    # Direct query since ProjectService doesn't expose unsafe get_by_id
+                    project = db.query(Project).filter(Project.id == project_id).first()
+                    if project:
+                        project_schema = project.schema_name
+                        logger.info(
+                            f"Resolved Project Schema for deletion: {project_schema}"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to resolve schema for project {project_id}: {e}"
+                    )
+
+            logger.info(
+                f"Calling orchestrator delete for {uuid_to_delete} with schema {project_schema}"
+            )
+            SimulatorService.orchestrator.delete_sensor(
+                uuid_to_delete, known_schema=project_schema
+            )
 
             return True
         except Exception as e:

@@ -1,26 +1,35 @@
-from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String
+import uuid as uuid_lib
+
+from sqlalchemy import Boolean, Column, DateTime, Integer
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 
-from app.models.base import Base
+from app.core.database import Base
 
 
 class Simulation(Base):
     __tablename__ = "simulations"
+    __table_args__ = {"schema": "water_dp"}
 
-    id = Column(String, primary_key=True, index=True)  # UUID
+    # Use UUID type to match water_dp schema DDL
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4, index=True
+    )
     thing_uuid = Column(
-        String, unique=True, index=True, nullable=False
-    )  # Refers to config_db/TSM thing
+        UUID(as_uuid=True), unique=True, index=True, nullable=False
+    )  # Refers to TimeIO thing.uuid
 
     # Configuration: datastreams, patterns, limits
     # [ {name, pattern: "sine", min, max, period}, ... ]
-    config = Column(JSON, nullable=False)
+    config = Column(JSONB, nullable=False)
 
-    is_enabled = Column(Boolean, default=True)
+    is_enabled = Column(Boolean, default=True, nullable=False)
 
     # Execution Tracking
     last_run = Column(DateTime(timezone=True), nullable=True)
-    interval_seconds = Column(Integer, default=60)
+    interval_seconds = Column(Integer, default=60, nullable=False)
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

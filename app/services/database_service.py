@@ -5,12 +5,10 @@ Database service for CRUD operations and data management.
 import logging
 from typing import Any, Dict, List, Optional
 
-import requests
 from shapely.geometry import shape
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.exceptions import DatabaseException, ResourceNotFoundException
 from app.models.geospatial import GeoFeature, GeoLayer
 from app.schemas.geospatial import (
@@ -214,12 +212,16 @@ class DatabaseService:
             self.db.rollback()
             raise DatabaseException(f"Failed to delete geo feature: {e}")
 
-    def get_sensors_in_layer(self, layer_name: str, schema_name: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_sensors_in_layer(
+        self, layer_name: str, schema_name: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """
         Get all sensors (Things) that are spatially within the geometry of a layer's features.
         Fetches layer geometry from GeoServer (WFS) and uses FROST OGC Spatial Filters.
         """
-        logger.info(f"ENTER: get_sensors_in_layer for {layer_name}, schema_name: {schema_name}")
+        logger.info(
+            f"ENTER: get_sensors_in_layer for {layer_name}, schema_name: {schema_name}"
+        )
         from app.services.geoserver_service import GeoServerService
 
         # 1. Fetch features from GeoServer WFS
@@ -247,12 +249,14 @@ class DatabaseService:
                         s = shape(geom)
                         if not s.is_valid:
                             s = s.buffer(0)
-                        
+
                         if s.is_valid:
                             polygons.append(s)
                         else:
                             fid = f.get("id", "unknown")
-                            logger.warning(f"Geometry for feature {fid} is invalid even after buffer(0). Skipping.")
+                            logger.warning(
+                                f"Geometry for feature {fid} is invalid even after buffer(0). Skipping."
+                            )
                 except Exception as ex:
                     fid = f.get("id", "unknown")
                     logger.warning(f"Skipping invalid geometry in feature {fid}: {ex}")
@@ -267,17 +271,19 @@ class DatabaseService:
             combined = unary_union(polygons)
             minx, miny, maxx, maxy = combined.bounds
             print(f"DEBUG_GEO: Layer {layer_name} BBOX: {minx}, {miny}, {maxx}, {maxy}")
-            logger.info(f"Layer {layer_name} BBOX: minx={minx}, miny={miny}, maxx={maxx}, maxy={maxy}")
+            logger.info(
+                f"Layer {layer_name} BBOX: minx={minx}, miny={miny}, maxx={maxx}, maxy={maxy}"
+            )
 
             # 4. Fetch Things from FROST across all projects (or specific tenant)
             from app.models.user_context import Project
             from app.services.thing_service import ThingService
-            
+
             # Fetch projects
             query = self.db.query(Project).filter(Project.schema_name.isnot(None))
             if schema_name:
                 query = query.filter(Project.schema_name == schema_name)
-                
+
             projects = query.all()
             logger.info(f"Found {len(projects)} projects for sensor discovery.")
             if not projects:
@@ -285,11 +291,15 @@ class DatabaseService:
 
             # Construct WKT Polygon for BBOX
             wkt_polygon = f"POLYGON(({minx} {miny}, {maxx} {miny}, {maxx} {maxy}, {minx} {maxy}, {minx} {miny}))"
-            
-            # Construct FROST OGC Spatial Filter
-            filter_param = f"st_intersects(Locations/location, geography'{wkt_polygon}')"
 
-            logger.info(f"Searching for sensors in {len(projects)} projects using spatial filter: {filter_param}")
+            # Construct FROST OGC Spatial Filter
+            filter_param = (
+                f"st_intersects(Locations/location, geography'{wkt_polygon}')"
+            )
+
+            logger.info(
+                f"Searching for sensors in {len(projects)} projects using spatial filter: {filter_param}"
+            )
 
             sensors = []
             seen_iot_ids = set()
@@ -299,11 +309,11 @@ class DatabaseService:
                     thing_service = ThingService(project.schema_name)
                     # Use the newly added filter support
                     project_things = thing_service.get_things(
-                        expand=["Locations", "Datastreams"], 
+                        expand=["Locations", "Datastreams"],
                         filter=filter_param,
-                        top=1000 # Limit per project for safety
+                        top=1000,  # Limit per project for safety
                     )
-                    
+
                     for thing_model in project_things:
                         # Deduplicate if necessary (unlikely given schema isolation but safe)
                         if thing_model.thing_id in seen_iot_ids:
@@ -312,39 +322,54 @@ class DatabaseService:
 
                         # Precise Check: Verify intersection with actual layer polygons (not just BBOX)
                         if thing_model.location and thing_model.location.coordinates:
-                            thing_point = shape({
-                                "type": "Point",
-                                "coordinates": [
-                                    thing_model.location.coordinates.longitude,
-                                    thing_model.location.coordinates.latitude
-                                ]
-                            })
-                            
+                            thing_point = shape(
+                                {
+                                    "type": "Point",
+                                    "coordinates": [
+                                        thing_model.location.coordinates.longitude,
+                                        thing_model.location.coordinates.latitude,
+                                    ],
+                                }
+                            )
+
                             match = False
                             for poly in polygons:
                                 if poly.intersects(thing_point):
                                     match = True
                                     break
-                            
+
                             if match:
                                 # Standardized dict from model
                                 sensor_dict = thing_model.model_dump()
                                 # Frontend specific mapping
                                 sensor_dict["id"] = thing_model.thing_id
                                 if thing_model.properties:
-                                    sensor_dict["station_type"] = thing_model.properties.get("station_type")
-                                
+                                    sensor_dict["station_type"] = (
+                                        thing_model.properties.get("station_type")
+                                    )
+
                                 # Flatten coordinates for frontend
-                                if thing_model.location and thing_model.location.coordinates:
-                                     sensor_dict["latitude"] = thing_model.location.coordinates.latitude
-                                     sensor_dict["longitude"] = thing_model.location.coordinates.longitude
-                                
+                                if (
+                                    thing_model.location
+                                    and thing_model.location.coordinates
+                                ):
+                                    sensor_dict["latitude"] = (
+                                        thing_model.location.coordinates.latitude
+                                    )
+                                    sensor_dict["longitude"] = (
+                                        thing_model.location.coordinates.longitude
+                                    )
+
                                 sensors.append(sensor_dict)
                 except Exception as project_ex:
-                    logger.error(f"Failed to fetch sensors for project {project.name} ({project.schema_name}): {project_ex}")
+                    logger.error(
+                        f"Failed to fetch sensors for project {project.name} ({project.schema_name}): {project_ex}"
+                    )
                     continue
 
-            logger.info(f"Found {len(sensors)} sensors in layer {layer_name} across all projects.")
+            logger.info(
+                f"Found {len(sensors)} sensors in layer {layer_name} across all projects."
+            )
             return sensors
 
         except Exception as e:

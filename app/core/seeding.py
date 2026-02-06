@@ -483,12 +483,12 @@ def seed_data(db: Session) -> None:
                             exists_stmt = project_sensors.select().where(
                                 and_(
                                     project_sensors.c.project_id == project.id,
-                                    project_sensors.c.sensor_id == sensor_id,
+                                    project_sensors.c.thing_uuid == sensor_id,
                                 )
                             )
                             if not db.execute(exists_stmt).first():
                                 stmt = project_sensors.insert().values(
-                                    project_id=project.id, sensor_id=sensor_id
+                                    project_id=project.id, thing_uuid=sensor_id
                                 )
                                 db.execute(stmt)
                                 logger.info(
@@ -529,13 +529,13 @@ def seed_data(db: Session) -> None:
                             stmt = project_sensors.select().where(
                                 and_(
                                     project_sensors.c.project_id == project.id,
-                                    project_sensors.c.sensor_id == s_id_str,
+                                    project_sensors.c.thing_uuid == s_id_str,
                                 )
                             )
                             if not db.execute(stmt).first():
                                 db.execute(
                                     project_sensors.insert().values(
-                                        project_id=project.id, sensor_id=s_id_str
+                                        project_id=project.id, thing_uuid=s_id_str
                                     )
                                 )
                                 logger.info(
@@ -681,14 +681,15 @@ def seed_data(db: Session) -> None:
                         project_sensors.select().where(
                             and_(
                                 project_sensors.c.project_id == project.id,
-                                project_sensors.c.sensor_id == str(inactive_sensor_id),
+                                project_sensors.c.thing_uuid == str(inactive_sensor_id),
                             )
                         )
                     ).first()
                     if not exists:
                         db.execute(
                             project_sensors.insert().values(
-                                project_id=project.id, sensor_id=str(inactive_sensor_id)
+                                project_id=project.id,
+                                thing_uuid=str(inactive_sensor_id),
                             )
                         )
                         logger.info(
@@ -725,14 +726,14 @@ def seed_data(db: Session) -> None:
                         project_sensors.select().where(
                             and_(
                                 project_sensors.c.project_id == project.id,
-                                project_sensors.c.sensor_id == str(dataset_id),
+                                project_sensors.c.thing_uuid == str(dataset_id),
                             )
                         )
                     ).first()
                     if not exists:
                         db.execute(
                             project_sensors.insert().values(
-                                project_id=project.id, sensor_id=str(dataset_id)
+                                project_id=project.id, thing_uuid=str(dataset_id)
                             )
                         )
                         logger.info(f"Linked Dataset {dataset_id} to project.")
@@ -818,7 +819,7 @@ def seed_advanced_logic(db: Session):
         stmt = project_sensors.select().where(
             and_(
                 project_sensors.c.project_id == p2.id,
-                project_sensors.c.sensor_id == sid,
+                project_sensors.c.thing_uuid == sid,
             )
         )
         exists = db.execute(stmt).first()
@@ -826,7 +827,7 @@ def seed_advanced_logic(db: Session):
             # Only link if not already linked (simple check)
             # We don't check if sensor exists in FROST here, assuming basic seeding created ID 1
             insert_stmt = project_sensors.insert().values(
-                project_id=p2.id, sensor_id=sid
+                project_id=p2.id, thing_uuid=sid
             )
             try:
                 db.execute(insert_stmt)

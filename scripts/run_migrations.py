@@ -26,10 +26,10 @@ def run_migrations():
         )
 
         if result.returncode != 0:
-             logger.error(f"Alembic failed with code {result.returncode}")
-             logger.error(f"STDOUT: {result.stdout}")
-             logger.error(f"STDERR: {result.stderr}")
-             return False
+            logger.error(f"Alembic failed with code {result.returncode}")
+            logger.error(f"STDOUT: {result.stdout}")
+            logger.error(f"STDERR: {result.stderr}")
+            return False
 
         logger.info(f"Alembic output: {result.stdout}")
         if result.stderr:
