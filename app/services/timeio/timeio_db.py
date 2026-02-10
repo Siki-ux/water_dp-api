@@ -1739,7 +1739,9 @@ class TimeIODatabase:
         except Exception as error:
             connection.rollback()
             if "materialized view" in str(error).lower():
-                logger.info(f"Skipping legacy SMS metadata registration (materialized view): {error}")
+                logger.info(
+                    f"Skipping legacy SMS metadata registration (materialized view): {error}"
+                )
                 return False
             logger.error(f"Failed to register sensor metadata: {error}")
             raise

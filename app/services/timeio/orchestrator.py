@@ -415,14 +415,19 @@ class TimeIOOrchestrator:
             "name": f"{dataset_name}_parser",
             "settings": {
                 "delimiter": parser_config.get("delimiter", ","),
-                "skiprows": parser_config.get("skiprows", 0),  # Extra lines to skip before header
+                "skiprows": parser_config.get(
+                    "skiprows", 0
+                ),  # Extra lines to skip before header
                 "skipfooter": parser_config.get("skipfooter", 0),
                 "encoding": parser_config.get("encoding", "utf-8"),
-                "header": parser_config.get("header_line", 0),  # Line index of header (0 = first line)
+                "header": parser_config.get(
+                    "header_line", 0
+                ),  # Line index of header (0 = first line)
                 # Default timestamp format: ISO 8601 (common for CSV exports)
-                "timestamp_columns": parser_config.get("timestamp_columns", [
-                    {"column": 0, "format": "%Y-%m-%dT%H:%M:%S.%fZ"}
-                ]),
+                "timestamp_columns": parser_config.get(
+                    "timestamp_columns",
+                    [{"column": 0, "format": "%Y-%m-%dT%H:%M:%S.%fZ"}],
+                ),
             },
         }
 
@@ -483,7 +488,10 @@ class TimeIOOrchestrator:
                 )
 
                 # Update properties to ensure dataset type is set
-                dataset_properties = {"station_type": "dataset", "type": "static_dataset"}
+                dataset_properties = {
+                    "station_type": "dataset",
+                    "type": "static_dataset",
+                }
                 self.db.update_thing_properties(
                     target_schema, thing_uuid, {"properties": dataset_properties}
                 )

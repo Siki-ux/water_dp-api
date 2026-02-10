@@ -68,7 +68,7 @@ class ProjectBase(PydanticBase):
 
 
 class ProjectCreate(ProjectBase):
-    # Support array from frontend (authorization_group_ids) 
+    # Support array from frontend (authorization_group_ids)
     # or single string (authorization_provider_group_id)
     authorization_group_ids: Optional[List[str]] = Field(
         default=None, description="Authorization Group IDs from Keycloak (array)"

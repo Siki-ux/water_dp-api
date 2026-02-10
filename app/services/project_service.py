@@ -309,18 +309,18 @@ class ProjectService:
             if not group_name:
                 continue
             group_str = str(group_name)
-            
+
             # Remove URN prefix
             if group_str.startswith("urn:geant:params:group:"):
                 group_str = group_str.replace("urn:geant:params:group:", "")
-            
+
             # Strip leading slash
             if group_str.startswith("/"):
                 group_str = group_str[1:]
-            
+
             # Add the sanitized group as-is
             sanitized_groups.add(group_str)
-            
+
             # Also add formats for hierarchical matching:
             # /UFZ-TSM/MyProject -> UFZ-TSM:MyProject
             if "/" in group_str:
@@ -329,10 +329,10 @@ class ProjectService:
                 # Also add each path component
                 parts = group_str.split("/")
                 for i in range(len(parts)):
-                    partial = "/".join(parts[:i+1])
+                    partial = "/".join(parts[: i + 1])
                     sanitized_groups.add(partial)
                     sanitized_groups.add(partial.replace("/", ":"))
-            
+
             # UFZ-TSM:MyProject -> UFZ-TSM/MyProject
             if ":" in group_str:
                 slash_format = group_str.replace(":", "/")
@@ -358,8 +358,10 @@ class ProjectService:
         projects = (
             db.query(Project).filter(or_(*criteria)).offset(skip).limit(limit).all()
         )
-        
-        logger.info(f"Found {len(projects)} projects for user {user.get('preferred_username')}")
+
+        logger.info(
+            f"Found {len(projects)} projects for user {user.get('preferred_username')}"
+        )
 
         return projects
 

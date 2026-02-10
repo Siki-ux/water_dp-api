@@ -169,15 +169,12 @@ class SimulatorService:
                 }
             elif isinstance(coords, (list, tuple)) and len(coords) >= 2:
                 location = {"lat": coords[1], "lon": coords[0]}
-        
+
         # Fallback to properties if location is missing (common in TSM flat storage)
         if not location and thing_data.get("properties"):
             props = thing_data.get("properties", {})
             if "latitude" in props and "longitude" in props:
-                location = {
-                    "lat": props.get("latitude"),
-                    "lon": props.get("longitude")
-                }
+                location = {"lat": props.get("latitude"), "lon": props.get("longitude")}
 
         return {
             "thing_uuid": thing_data.get("uuid"),

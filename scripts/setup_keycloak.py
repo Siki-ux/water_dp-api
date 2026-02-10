@@ -166,7 +166,9 @@ def create_user(token, realm, username, password):
         user = find_user(token, realm, username)
         return user["id"]
     elif response.status_code == 409:
-        print(f"User {username} already exists in {realm}. Ensuring password is up to date...")
+        print(
+            f"User {username} already exists in {realm}. Ensuring password is up to date..."
+        )
         user = find_user(token, realm, username)
         set_user_password(token, realm, user["id"], password)
         return user["id"]
