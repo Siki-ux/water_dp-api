@@ -9,11 +9,14 @@ from pydantic import BaseModel as PydanticBaseModel
 from pydantic import ConfigDict
 from sqlalchemy import Column, DateTime, Integer, String, Text
 from sqlalchemy.ext.declarative import declared_attr
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, declarative_base
 
 
 class BaseModel:
     """Base model with common fields."""
+
+    # All tables belong to water_dp schema
+    __table_args__ = {"schema": "water_dp"}
 
     id = Column(Integer, primary_key=True, index=True)
     created_at = Column(
@@ -59,3 +62,6 @@ class PydanticBase(PydanticBaseModel):
     """Base Pydantic model with common configuration."""
 
     model_config = ConfigDict(from_attributes=True)
+
+
+Base = declarative_base(cls=BaseModel)

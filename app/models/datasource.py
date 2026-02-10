@@ -20,7 +20,7 @@ class DataSource(Base, BaseModel):
 
     project_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
+        ForeignKey("water_dp.projects.id", ondelete="CASCADE"),
         nullable=False,
     )
     name = Column(String(255), nullable=False)

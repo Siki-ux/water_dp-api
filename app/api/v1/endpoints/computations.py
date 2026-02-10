@@ -6,36 +6,23 @@ from typing import List, Optional
 
 from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import UUID4, BaseModel
+from pydantic import UUID4
 from sqlalchemy.orm import Session
 
 from app.api import deps
 from app.core.database import get_db
 from app.models.computations import ComputationJob, ComputationScript
+from app.schemas.computation import (
+    ComputationJobRead,
+    ComputationRequest,
+    ComputationScriptRead,
+    ScriptContentUpdate,
+    TaskSubmissionResponse,
+)
 from app.services.project_service import ProjectService
 from app.tasks.computation_tasks import run_computation_task
 
 router = APIRouter()
-
-
-class ComputationScriptRead(BaseModel):
-    id: UUID4
-    name: str
-    description: str | None
-    project_id: UUID4
-    filename: str
-
-    class ConfigDict:
-        from_attributes = True
-
-
-class ComputationRequest(BaseModel):
-    params: dict = {}
-
-
-class TaskSubmissionResponse(BaseModel):
-    task_id: str
-    status: str
 
 
 COMPUTATIONS_DIR = "app/computations"
@@ -83,15 +70,15 @@ async def upload_computation_script(
     name: str = Form(...),
     description: str = Form(None),
     project_id: UUID4 = Form(...),
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(deps.get_current_user),
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
 ):
     """
     Upload a new computation script and associate it with a project.
     Requires 'editor' access to the project.
     """
     # Check Project Access (Editor required)
-    ProjectService._check_access(db, project_id, current_user, required_role="editor")
+    ProjectService._check_access(database, project_id, user, required_role="editor")
 
     # 1. Validate Extension
     if not file.filename.endswith(".py"):
@@ -104,9 +91,6 @@ async def upload_computation_script(
 
     content_str = content.decode("utf-8")
     validate_script_security(content_str)
-
-    # Restore file cursor for saving (though we use content_str or just write content directly)
-    # Actually simpler to just write 'content' since we already read it all
 
     if not os.path.exists(COMPUTATIONS_DIR):
         os.makedirs(COMPUTATIONS_DIR)
@@ -131,35 +115,37 @@ async def upload_computation_script(
         description=description,
         filename=safe_filename,
         project_id=project_id,
-        uploaded_by=current_user.get("sub", "unknown"),
+        uploaded_by=user.get("sub", "unknown"),
     )
-    db.add(db_script)
-    db.commit()
-    db.refresh(db_script)
+    database.add(db_script)
+    database.commit()
+    database.refresh(db_script)
 
     return db_script
 
 
 @router.post("/run/{script_id}", response_model=TaskSubmissionResponse)
-def run_computation(
+async def run_computation(
     script_id: UUID4,
     request: ComputationRequest,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(deps.get_current_user),
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
 ):
     """
     Run a computation script by ID.
     Requires 'viewer' access to the associated project.
     """
     script = (
-        db.query(ComputationScript).filter(ComputationScript.id == script_id).first()
+        database.query(ComputationScript)
+        .filter(ComputationScript.id == script_id)
+        .first()
     )
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
 
     # Check Project Access (Viewer required)
     ProjectService._check_access(
-        db, script.project_id, current_user, required_role="viewer"
+        database, script.project_id, user, required_role="viewer"
     )
 
     # Check file existence
@@ -168,10 +154,7 @@ def run_computation(
         raise HTTPException(status_code=404, detail="Script file missing on server")
 
     # Pass the filename (module name logic will handle it in the task)
-    # We strip .py extension for the module loader if needed, or handle it in task
-    # Let's pass the filename and let the task resolve it.
-
-    # NOTE: The task currently expects a module path like "app.computations.xyz".
+    # Note: The task currently expects a module path like "app.computations.xyz".
     # Our filenames are now "project-uuid_xyz.py".
     # The module name would be "app.computations.project-uuid_xyz" (without .py)
 
@@ -187,31 +170,31 @@ def run_computation(
     job = ComputationJob(
         id=task.id,
         script_id=script.id,
-        user_id=current_user.get("sub"),
+        user_id=user.get("sub"),
         status="PENDING",
         start_time=datetime.utcnow().isoformat(),
-        created_by=current_user.get("preferred_username", "unknown"),
-        updated_by=current_user.get("preferred_username", "unknown"),
+        created_by=user.get("preferred_username", "unknown"),
+        updated_by=user.get("preferred_username", "unknown"),
     )
-    db.add(job)
-    db.commit()
+    database.add(job)
+    database.commit()
 
     return {"task_id": task.id, "status": "submitted"}
 
 
 @router.get("/list/{project_id}", response_model=List[ComputationScriptRead])
-def list_project_computations(
+async def list_project_computations(
     project_id: UUID4,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(deps.get_current_user),
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
 ):
     """
     List scripts for a specific project.
     """
-    ProjectService._check_access(db, project_id, current_user, required_role="viewer")
+    ProjectService._check_access(database, project_id, user, required_role="viewer")
 
     scripts = (
-        db.query(ComputationScript)
+        database.query(ComputationScript)
         .filter(ComputationScript.project_id == project_id)
         .all()
     )
@@ -219,20 +202,18 @@ def list_project_computations(
 
 
 @router.get("/scripts", response_model=List[ComputationScriptRead])
-def list_all_scripts(
+async def list_all_scripts(
     project_id: Optional[UUID4] = None,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(deps.get_current_user),
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
 ):
     """
     List scripts. If project_id provided, filter by project.
     """
-    query = db.query(ComputationScript)
+    query = database.query(ComputationScript)
 
     if project_id:
-        ProjectService._check_access(
-            db, project_id, current_user, required_role="viewer"
-        )
+        ProjectService._check_access(database, project_id, user, required_role="viewer")
         query = query.filter(ComputationScript.project_id == project_id)
     else:
         # If no project_id, maybe list all accessible?
@@ -245,44 +226,30 @@ def list_all_scripts(
     return query.all()
 
 
-class ComputationJobRead(BaseModel):
-    id: str
-    script_id: UUID4
-    user_id: str
-    status: str
-    start_time: str | None
-    end_time: str | None
-    result: str | None
-    error: str | None
-    logs: str | None
-    created_by: str | None
-
-    class ConfigDict:
-        from_attributes = True
-
-
 @router.get("/jobs/{script_id}", response_model=List[ComputationJobRead])
-def list_script_jobs(
+async def list_script_jobs(
     script_id: UUID4,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(deps.get_current_user),
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
 ):
     """
     List execution history for a script.
     Syncs PENDING jobs from Celery before returning.
     """
     script = (
-        db.query(ComputationScript).filter(ComputationScript.id == script_id).first()
+        database.query(ComputationScript)
+        .filter(ComputationScript.id == script_id)
+        .first()
     )
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
 
     ProjectService._check_access(
-        db, script.project_id, current_user, required_role="viewer"
+        database, script.project_id, user, required_role="viewer"
     )
 
     jobs = (
-        db.query(ComputationJob)
+        database.query(ComputationJob)
         .filter(ComputationJob.script_id == script_id)
         .order_by(ComputationJob.start_time.desc())
         .limit(50)
@@ -303,13 +270,13 @@ def list_script_jobs(
                 job.end_time = datetime.utcnow().isoformat()
 
                 if task_result.successful():
-                    res = task_result.result
-                    if isinstance(res, (dict, list)):
-                        job.result = json.dumps(res)
-                        job.logs = json.dumps(res, indent=2)
+                    task_result_data = task_result.result
+                    if isinstance(task_result_data, (dict, list)):
+                        job.result = json.dumps(task_result_data)
+                        job.logs = json.dumps(task_result_data, indent=2)
                     else:
-                        job.result = str(res)
-                        job.logs = str(res)
+                        job.result = str(task_result_data)
+                        job.logs = str(task_result_data)
                 else:
                     job.error = str(task_result.result)
                     job.logs = f"Error: {task_result.result}\nTraceback: {task_result.traceback}"
@@ -317,7 +284,7 @@ def list_script_jobs(
                 dirty = True
 
     if dirty:
-        db.commit()
+        database.commit()
         # Refresh all jobs to get updated state (though objects should be updated in session)
         # No need to re-query as SQLAlchemy updates the objects in identity map
 
@@ -325,24 +292,24 @@ def list_script_jobs(
 
 
 @router.get("/tasks/{task_id}")
-def get_computation_status(
+async def get_computation_status(
     task_id: str,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(deps.get_current_user),
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
 ):
     """
     Get the status of a computation task.
     Syncs Celery result to DB if finished.
     """
-    job = db.query(ComputationJob).filter(ComputationJob.id == task_id).first()
+    job = database.query(ComputationJob).filter(ComputationJob.id == task_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
     # Authorization Check
-    roles = current_user.get("realm_access", {}).get("roles", [])
+    roles = user.get("realm_access", {}).get("roles", [])
     is_superuser = "admin" in roles or "admin-siki" in roles
 
-    if not is_superuser and job.user_id != current_user.get("sub"):
+    if not is_superuser and job.user_id != user.get("sub"):
         raise HTTPException(status_code=403, detail="Not authorized to view this job")
 
     # If already finished in DB, return immediately
@@ -369,13 +336,13 @@ def get_computation_status(
         if task_result.successful():
             # For now, we store the whole result as JSON in 'result'
             # And also as 'logs' just for visibility in the simple UI
-            res = task_result.result
-            if isinstance(res, (dict, list)):
-                job.result = json.dumps(res)
-                job.logs = json.dumps(res, indent=2)
+            task_result_data = task_result.result
+            if isinstance(task_result_data, (dict, list)):
+                job.result = json.dumps(task_result_data)
+                job.logs = json.dumps(task_result_data, indent=2)
             else:
-                job.result = str(res)
-                job.logs = str(res)
+                job.result = str(task_result_data)
+                job.logs = str(task_result_data)
         else:
             # Failure
             job.error = str(task_result.result)  # Exception message
@@ -383,8 +350,8 @@ def get_computation_status(
                 f"Error: {task_result.result}\nTraceback: {task_result.traceback}"
             )
 
-        db.commit()
-        db.refresh(job)
+        database.commit()
+        database.refresh(job)
 
     return {
         "task_id": task_id,
@@ -395,57 +362,57 @@ def get_computation_status(
 
 
 @router.get("/content/{script_id}")
-def get_script_content(
+async def get_script_content(
     script_id: UUID4,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(deps.get_current_user),
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
 ):
     """
     Get the raw content of a computation script.
     """
     script = (
-        db.query(ComputationScript).filter(ComputationScript.id == script_id).first()
+        database.query(ComputationScript)
+        .filter(ComputationScript.id == script_id)
+        .first()
     )
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
 
     ProjectService._check_access(
-        db, script.project_id, current_user, required_role="viewer"
+        database, script.project_id, user, required_role="viewer"
     )
 
     script_path = os.path.join(COMPUTATIONS_DIR, script.filename)
     if not os.path.exists(script_path):
         raise HTTPException(status_code=404, detail="Script file missing on server")
 
-    with open(script_path, "r", encoding="utf-8") as f:
-        content = f.read()
+    with open(script_path, "r", encoding="utf-8") as file_object:
+        content = file_object.read()
 
     return {"content": content}
 
 
-class ScriptContentUpdate(BaseModel):
-    content: str
-
-
 @router.put("/content/{script_id}")
-def update_script_content(
+async def update_script_content(
     script_id: UUID4,
     update_data: ScriptContentUpdate,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(deps.get_current_user),
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
 ):
     """
     Update the content of a computation script.
     Requires 'editor' access.
     """
     script = (
-        db.query(ComputationScript).filter(ComputationScript.id == script_id).first()
+        database.query(ComputationScript)
+        .filter(ComputationScript.id == script_id)
+        .first()
     )
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
 
     ProjectService._check_access(
-        db, script.project_id, current_user, required_role="editor"
+        database, script.project_id, user, required_role="editor"
     )
 
     new_content = update_data.content
@@ -459,7 +426,7 @@ def update_script_content(
 
     # 3. Save
     script_path = os.path.join(COMPUTATIONS_DIR, script.filename)
-    with open(script_path, "w", encoding="utf-8") as f:
-        f.write(new_content)
+    with open(script_path, "w", encoding="utf-8") as file_object:
+        file_object.write(new_content)
 
     return {"status": "updated", "id": script_id}

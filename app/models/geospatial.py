@@ -43,7 +43,12 @@ class GeoLayer(Base, BaseModel):
     properties = Column(JSONB, nullable=True)
     style_config = Column(JSONB, nullable=True)  # SLD or CSS styling
 
-    features = relationship("GeoFeature", back_populates="layer")
+    features = relationship(
+        "GeoFeature",
+        back_populates="layer",
+        primaryjoin="GeoLayer.layer_name==GeoFeature.layer_id",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         Index("idx_layer_workspace", "workspace"),
@@ -57,7 +62,7 @@ class GeoFeature(Base, BaseModel):
 
     __tablename__ = "geo_features"
 
-    layer_id = Column(String(100), ForeignKey("geo_layers.layer_name"), nullable=False)
+    layer_id = Column(String(100), ForeignKey(GeoLayer.layer_name), nullable=False)
 
     feature_id = Column(String(100), nullable=False, index=True)
     feature_type = Column(String(50), nullable=False)  # point, line, polygon, etc.
@@ -71,7 +76,7 @@ class GeoFeature(Base, BaseModel):
 
     is_active = Column(String(10), default="true")
 
-    layer = relationship("GeoLayer", back_populates="features")
+    layer = relationship("GeoLayer", back_populates="features", foreign_keys=[layer_id])
 
     __table_args__ = (
         Index("idx_feature_layer", "layer_id"),

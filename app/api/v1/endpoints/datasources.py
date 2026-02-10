@@ -19,33 +19,33 @@ router = APIRouter()
 @router.get(
     "/projects/{project_id}/datasources", response_model=List[DataSourceResponse]
 )
-def get_project_datasources(
+async def get_project_datasources(
     project_id: UUID,
-    db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    database: Session = Depends(get_db),
+    user: Any = Depends(get_current_user),
 ):
     """
     Get all datasources for a project.
     """
-    service = DataSourceService(db)
+    datasource_service = DataSourceService(database)
     # Ideally verify project access here
-    datasources = service.get_by_project(project_id)
+    datasources = datasource_service.get_by_project(project_id)
 
     return datasources
 
 
 @router.post("/projects/{project_id}/datasources", response_model=DataSourceResponse)
-def create_datasource(
+async def create_datasource(
     project_id: UUID,
     schema: DataSourceCreate,
-    db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    database: Session = Depends(get_db),
+    user: Any = Depends(get_current_user),
 ):
     """
     Create a new datasource.
     """
-    service = DataSourceService(db)
-    datasource = service.create(project_id, schema)
+    datasource_service = DataSourceService(database)
+    datasource = datasource_service.create(project_id, schema)
 
     return datasource
 
@@ -54,18 +54,18 @@ def create_datasource(
     "/projects/{project_id}/datasources/{datasource_id}",
     response_model=DataSourceResponse,
 )
-def update_datasource(
+async def update_datasource(
     project_id: UUID,
     datasource_id: UUID,
     schema: DataSourceUpdate,
-    db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    database: Session = Depends(get_db),
+    user: Any = Depends(get_current_user),
 ):
     """
     Update a datasource.
     """
-    service = DataSourceService(db)
-    datasource = service.update(datasource_id, schema)
+    datasource_service = DataSourceService(database)
+    datasource = datasource_service.update(datasource_id, schema)
     if not datasource:
         raise HTTPException(status_code=404, detail="Datasource not found")
 
@@ -73,38 +73,38 @@ def update_datasource(
 
 
 @router.delete("/projects/{project_id}/datasources/{datasource_id}")
-def delete_datasource(
+async def delete_datasource(
     project_id: UUID,
     datasource_id: UUID,
-    db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    database: Session = Depends(get_db),
+    user: Any = Depends(get_current_user),
 ):
     """
     Delete a datasource.
     """
-    service = DataSourceService(db)
-    success = service.delete(datasource_id)
+    datasource_service = DataSourceService(database)
+    success = datasource_service.delete(datasource_id)
     if not success:
         raise HTTPException(status_code=404, detail="Datasource not found")
     return {"status": "success"}
 
 
 @router.post("/projects/{project_id}/datasources/{datasource_id}/test")
-def test_connection(
+async def test_connection(
     project_id: UUID,
     datasource_id: UUID,
-    db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    database: Session = Depends(get_db),
+    user: Any = Depends(get_current_user),
 ):
     """
     Test connection to datasource.
     """
-    service = DataSourceService(db)
-    datasource = service.get(datasource_id)
+    datasource_service = DataSourceService(database)
+    datasource = datasource_service.get(datasource_id)
     if not datasource:
         raise HTTPException(status_code=404, detail="Datasource not found")
 
-    success = service.test_connection(datasource)
+    success = datasource_service.test_connection(datasource)
     if success:
         return {"status": "success", "message": "Connection successful"}
     else:
@@ -112,33 +112,33 @@ def test_connection(
 
 
 @router.post("/projects/{project_id}/datasources/{datasource_id}/query")
-def execute_query(
+async def execute_query(
     project_id: UUID,
     datasource_id: UUID,
     query: QueryRequest,
-    db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_active_superuser),  # Admin only
+    database: Session = Depends(get_db),
+    user: Any = Depends(get_current_active_superuser),  # Admin only
 ):
     """
     Execute raw SQL on a datasource.
     RESTRICTED: Admins only.
     """
-    service = DataSourceService(db)
-    datasource = service.get(datasource_id)
+    datasource_service = DataSourceService(database)
+    datasource = datasource_service.get(datasource_id)
     if not datasource:
         raise HTTPException(status_code=404, detail="Datasource not found")
 
     try:
-        result = service.execute_query(datasource, query.sql)
+        result = datasource_service.execute_query(datasource, query.sql)
         return result
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=str(error))
 
 
 @router.get("/datasources/available-sensors")
-def get_available_sensors(
-    db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+async def get_available_sensors(
+    database: Session = Depends(get_db),
+    user: Any = Depends(get_current_user),
 ):
     """
     Get list of available sensors (Things) from TimeIO (FROST).
@@ -165,19 +165,19 @@ def get_available_sensors(
         # Frontend expects id, name, description. properties.
         # FROST returns @iot.id. We map it to id.
         formatted = []
-        for t in things:
+        for thing in things:
             formatted.append(
                 {
-                    "id": str(t.get("@iot.id")),
-                    "name": t.get("name"),
-                    "description": t.get("description"),
-                    "properties": t.get("properties", {}),
+                    "id": str(thing.get("@iot.id")),
+                    "name": thing.get("name"),
+                    "description": thing.get("description"),
+                    "properties": thing.get("properties", {}),
                 }
             )
 
         return formatted
 
-    except Exception as e:
+    except Exception as error:
         raise HTTPException(
-            status_code=502, detail=f"Failed to fetch sensors from TimeIO: {e}"
+            status_code=502, detail=f"Failed to fetch sensors from TimeIO: {error}"
         )

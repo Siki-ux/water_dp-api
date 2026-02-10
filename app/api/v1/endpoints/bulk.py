@@ -61,10 +61,10 @@ async def import_geojson(file: UploadFile = File(...)):
         if os.path.exists(file_path):
             os.remove(file_path)
         raise
-    except Exception as e:
+    except Exception as error:
         if os.path.exists(file_path):
             os.remove(file_path)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(error))
 
 
 @router.post(
@@ -105,7 +105,7 @@ async def import_timeseries(file: UploadFile = File(...)):
     response_model=TaskStatusResponse,
     dependencies=[Depends(get_current_active_superuser)],
 )
-def get_import_status(task_id: str):
+async def get_import_status(task_id: str):
     from app.core.celery_app import celery_app
 
     task_result = AsyncResult(task_id, app=celery_app)

@@ -1,0 +1,157 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { Save } from "lucide-react";
+import axios from "axios";
+
+import { use } from "react";
+
+export default function ProjectSettingsPage({ params }: { params: Promise<{ id: string }> }) {
+    // Use React.use() to unwrap the promise in client component
+    const { id } = use(params);
+    const { data: session } = useSession();
+    const router = useRouter();
+
+    const [project, setProject] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+
+    // Form States
+    const [name, setName] = useState("");
+    const [desc, setDesc] = useState("");
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+
+    useEffect(() => {
+        // console.log("Settings Page Session:", session);
+        if (session?.accessToken && id) {
+            fetchProject();
+        } else if (session && !session.accessToken) {
+            console.error("Session missing accessToken!", session);
+        }
+    }, [session, id]);
+
+    const fetchProject = async () => {
+        try {
+            const res = await axios.get(`${apiUrl}/projects/${id}`, {
+                headers: { Authorization: `Bearer ${session?.accessToken}` }
+            });
+            setProject(res.data);
+            setName(res.data.name);
+            setDesc(res.data.description || "");
+        } catch (error: any) {
+            console.error("Fetch Project Error:", error.response?.data || error.message);
+            // Optionally set an error state to show in UI
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleUpdate = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setSaving(true);
+        try {
+            await axios.put(`${apiUrl}/projects/${id}`, {
+                name,
+                description: desc
+            }, {
+                headers: { Authorization: `Bearer ${session?.accessToken}` }
+            });
+            // alert("Project updated successfully");
+            router.refresh();
+        } catch (error) {
+            console.error("Failed to update project", error);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    if (loading) return <div>Loading settings...</div>;
+
+    return (
+        <div className="max-w-4xl space-y-12">
+            {/* General Settings */}
+            <section className="space-y-6">
+                <div>
+                    <h2 className="text-2xl font-bold text-white">General Settings</h2>
+                    <p className="text-white/60">Update your project details.</p>
+                </div>
+
+                <form onSubmit={handleUpdate} className="space-y-4 bg-white/5 p-6 rounded-xl border border-white/10">
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-white/80">Project Name</label>
+                        <input
+                            type="text"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            className="w-full px-4 py-2 bg-black/20 border border-white/10 rounded-lg text-white focus:outline-none focus:border-hydro-primary"
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-white/80">Description</label>
+                        <textarea
+                            value={desc}
+                            onChange={(e) => setDesc(e.target.value)}
+                            className="w-full px-4 py-2 bg-black/20 border border-white/10 rounded-lg text-white focus:outline-none focus:border-hydro-primary h-24"
+                        />
+                    </div>
+                    <div className="flex justify-end">
+                        <button
+                            type="submit"
+                            disabled={saving}
+                            className="flex items-center gap-2 px-4 py-2 bg-hydro-primary hover:bg-blue-600 rounded-lg text-white font-medium transition-colors"
+                        >
+                            <Save className="w-4 h-4" />
+                            {saving ? "Saving..." : "Save Changes"}
+                        </button>
+                    </div>
+                </form>
+            </section>
+            <section className="space-y-6">
+                <div>
+                    <h2 className="text-2xl font-bold text-white">Access Control</h2>
+                    <p className="text-white/60">Manage who has access to this project via Authorization Groups.</p>
+                </div>
+
+                <div className="bg-white/5 p-6 rounded-xl border border-white/10 space-y-6">
+                    <div className="bg-hydro-primary/10 border border-hydro-primary/30 p-4 rounded-lg text-hydro-primary text-sm flex gap-3 items-start">
+                        <div className="mt-1">ℹ️</div>
+                        <div>
+                            <p className="font-semibold">Membership is managed via Authorization Groups.</p>
+                            <p className="opacity-80">
+                                This project is accessible to members of the groups listed below.
+                                All group members have <strong>Editor</strong> access.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <h3 className="text-sm font-medium text-white/80 uppercase tracking-wider">Authorized Groups</h3>
+                        {project?.authorization_group_ids && project.authorization_group_ids.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                                {project.authorization_group_ids.map((groupId: string) => (
+                                    <span key={groupId} className="px-3 py-1.5 bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-full text-sm font-medium flex items-center gap-2">
+                                        <span>🛡️ {groupId}</span>
+                                    </span>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-white/40 italic">No authorization groups linked (Legacy Project).</p>
+                        )}
+                    </div>
+
+                    <div className="pt-4 border-t border-white/10">
+                        <a
+                            href="/groups"
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white font-medium transition-colors text-sm"
+                        >
+                            Manage Authorization Groups &rarr;
+                        </a>
+                    </div>
+                </div>
+            </section>
+        </div>
+    );
+}

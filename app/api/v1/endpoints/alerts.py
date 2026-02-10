@@ -60,33 +60,35 @@ class AlertRead(BaseModel):
 
 
 @router.get("/definitions/{project_id}", response_model=List[AlertDefinitionRead])
-def get_alert_definitions(
+async def get_alert_definitions(
     project_id: UUID4,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(deps.get_current_user),
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
 ):
     """
     List alert definitions for a project.
     """
-    ProjectService._check_access(db, project_id, current_user, required_role="viewer")
+    ProjectService._check_access(database, project_id, user, required_role="viewer")
 
     definitions = (
-        db.query(AlertDefinition).filter(AlertDefinition.project_id == project_id).all()
+        database.query(AlertDefinition)
+        .filter(AlertDefinition.project_id == project_id)
+        .all()
     )
     return definitions
 
 
 @router.post("/definitions", response_model=AlertDefinitionRead)
-def create_alert_definition(
+async def create_alert_definition(
     definition: AlertDefinitionCreate,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(deps.get_current_user),
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
 ):
     """
     Create a new alert definition.
     """
     ProjectService._check_access(
-        db, definition.project_id, current_user, required_role="editor"
+        database, definition.project_id, user, required_role="editor"
     )
 
     db_def = AlertDefinition(
@@ -98,11 +100,11 @@ def create_alert_definition(
         conditions=definition.conditions,
         severity=definition.severity,
         is_active=definition.is_active,
-        created_by=current_user.get("sub"),
+        created_by=user.get("sub"),
     )
-    db.add(db_def)
-    db.commit()
-    db.refresh(db_def)
+    database.add(db_def)
+    database.commit()
+    database.refresh(db_def)
     return db_def
 
 
@@ -115,23 +117,25 @@ class AlertDefinitionUpdate(BaseModel):
 
 
 @router.put("/definitions/{definition_id}", response_model=AlertDefinitionRead)
-def update_alert_definition(
+async def update_alert_definition(
     definition_id: UUID4,
     update_data: AlertDefinitionUpdate,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(deps.get_current_user),
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
 ):
     """
     Update an alert definition.
     """
     db_def = (
-        db.query(AlertDefinition).filter(AlertDefinition.id == definition_id).first()
+        database.query(AlertDefinition)
+        .filter(AlertDefinition.id == definition_id)
+        .first()
     )
     if not db_def:
         raise HTTPException(status_code=404, detail="Alert definition not found")
 
     ProjectService._check_access(
-        db, db_def.project_id, current_user, required_role="editor"
+        database, db_def.project_id, user, required_role="editor"
     )
 
     if update_data.name is not None:
@@ -145,51 +149,53 @@ def update_alert_definition(
     if update_data.is_active is not None:
         db_def.is_active = update_data.is_active
 
-    db.commit()
-    db.refresh(db_def)
+    database.commit()
+    database.refresh(db_def)
     return db_def
 
 
 @router.delete("/definitions/{definition_id}")
-def delete_alert_definition(
+async def delete_alert_definition(
     definition_id: UUID4,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(deps.get_current_user),
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
 ):
     """
     Delete an alert definition.
     """
     db_def = (
-        db.query(AlertDefinition).filter(AlertDefinition.id == definition_id).first()
+        database.query(AlertDefinition)
+        .filter(AlertDefinition.id == definition_id)
+        .first()
     )
     if not db_def:
         raise HTTPException(status_code=404, detail="Alert definition not found")
 
     ProjectService._check_access(
-        db, db_def.project_id, current_user, required_role="editor"
+        database, db_def.project_id, user, required_role="editor"
     )
 
-    db.delete(db_def)
-    db.commit()
+    database.delete(db_def)
+    database.commit()
     return {"ok": True}
 
 
 @router.get("/history/{project_id}", response_model=List[AlertRead])
-def get_alert_history(
+async def get_alert_history(
     project_id: UUID4,
     status: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(deps.get_current_user),
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
     limit: int = 100,
 ):
     """
     Get history of triggered alerts for a project.
     """
-    ProjectService._check_access(db, project_id, current_user, required_role="viewer")
+    ProjectService._check_access(database, project_id, user, required_role="viewer")
 
     # Join with definition to filter by project
     query = (
-        db.query(Alert)
+        database.query(Alert)
         .join(AlertDefinition)
         .filter(AlertDefinition.project_id == project_id)
     )
@@ -202,54 +208,56 @@ def get_alert_history(
 
 
 @router.post("/history/{alert_id}/acknowledge")
-def acknowledge_alert(
+async def acknowledge_alert(
     alert_id: UUID4,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(deps.get_current_user),
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
 ):
     """
     Acknowledge an alert.
     """
-    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    alert = database.query(Alert).filter(Alert.id == alert_id).first()
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
 
     # Check access to the project owning the alert's definition
     definition = (
-        db.query(AlertDefinition)
+        database.query(AlertDefinition)
         .filter(AlertDefinition.id == alert.definition_id)
         .first()
     )
     if definition:
         ProjectService._check_access(
-            db, definition.project_id, current_user, required_role="viewer"
+            database, definition.project_id, user, required_role="viewer"
         )
 
     alert.status = "acknowledged"
-    alert.acknowledged_by = current_user.get("sub")
+    alert.acknowledged_by = user.get("sub")
     alert.acknowledged_at = datetime.utcnow()
-    db.commit()
+    database.commit()
     return {"status": "acknowledged"}
 
 
 @router.post("/test-trigger", response_model=AlertRead)
-def trigger_test_alert(
+async def trigger_test_alert(
     definition_id: UUID4 = Body(..., embed=True),
     message: str = Body(..., embed=True),
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(deps.get_current_user),
+    database: Session = Depends(get_db),
+    user: dict = Depends(deps.get_current_user),
 ):
     """
     Manually trigger an alert for testing/demo purposes.
     """
     db_def = (
-        db.query(AlertDefinition).filter(AlertDefinition.id == definition_id).first()
+        database.query(AlertDefinition)
+        .filter(AlertDefinition.id == definition_id)
+        .first()
     )
     if not db_def:
         raise HTTPException(status_code=404, detail="Alert definition not found")
 
     ProjectService._check_access(
-        db, db_def.project_id, current_user, required_role="editor"
+        database, db_def.project_id, user, required_role="editor"
     )
 
     # Create Alert
@@ -257,9 +265,9 @@ def trigger_test_alert(
         definition_id=db_def.id,
         status="active",
         message=message,
-        details={"executor": "manual_test", "triggered_by": current_user.get("sub")},
+        details={"executor": "manual_test", "triggered_by": user.get("sub")},
     )
-    db.add(alert)
-    db.commit()
-    db.refresh(alert)
+    database.add(alert)
+    database.commit()
+    database.refresh(alert)
     return alert
